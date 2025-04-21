@@ -154,15 +154,26 @@ impl WebSocketManager {
                 Ok(mut stream) => {
                      println!("   Subscribed to new blocks on: {}", name_clone);
                     while let Some(block) = stream.next().await {
-                        // --- TODO: Process the incoming block header ---
-                        // This is where you'd trigger price updates, analysis, etc.
-                        // Be mindful of rate limits if making RPC calls here.
+                        // --- Simulate a DEX price update and arbitrage scan ---
+                        // In real code, you would extract price data from the DEX feed here
+                        let mut rng = rand::thread_rng();
+                        let price = rng.gen_range(1.0..100.0); // Simulate a price
+                        // Example: matrix_id and dex name are stubbed for now
+                        let matrix_id = if name_clone.contains("ETH") { "matrix_eth_1" } else { "matrix_bsc_1" };
+                        let dex = if name_clone.contains("Pancake") { "PancakeSwap" } else { "Biswap" };
+                        // TODO: Pass matrix_manager and marginal_optimizer via closure or context
+                        // matrix_manager.update_dex_price(matrix_id, dex, price);
+                        // let opps = matrix_manager.scan_for_arbitrage_opportunities(marginal_optimizer);
                         println!(
-                            "[{}] New Block: Number={:?}, Hash={:?}",
+                            "[{}] New Block: Number={:?}, Hash={:?}, Simulated {} price: {}",
                             name_clone,
-                            block.number.map(|n| n.as_u64()), // Handle Option
-                            block.hash.map(|h| format!("{:.8}", h)) // Shorten hash for readability
+                            block.number.map(|n| n.as_u64()),
+                            block.hash.map(|h| format!("{:.8}", h)),
+                            dex,
+                            price
                         );
+                        // For each opportunity, print or trigger downstream logic
+                        // for opp in opps { println!("Found arbitrage: {}", opp); }
                     }
                      eprintln!("Block stream ended unexpectedly for: {}", name_clone); // Should ideally not happen unless WS disconnects
                 }

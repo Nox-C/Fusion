@@ -68,7 +68,7 @@ max_liquidity_utilization_alt = 35
 max_liquidity_utilization_meme = 25
 liquidity_source_priority_order = "PancakeSwap,Biswap,MDEX,ApeSwap,Thena"
 smart_order_routing = true
-profit_threshold = 1.5
+marginal_optimizer = 1.5
 min_profit_usd = 10
 max_slippage = 0.5
 gas_price_buffer = 20
@@ -152,7 +152,7 @@ matrix1_name = "StablecoinMatrix"
 matrix1_tokens = "BUSD,USDT,USDC,DAI,TUSD,FRAX,VAI,MIM,USDP"
 matrix1_pairs = "BUSD:USDT,BUSD:USDC,BUSD:DAI,USDT:USDC,USDT:DAI,USDC:DAI,BUSD:TUSD,BUSD:FRAX,USDT:FRAX,BUSD:VAI,USDT:MIM,USDC:MIM,BUSD:USDP"
 matrix1_update_priority = 3
-matrix1_profit_threshold = 1.5
+matrix1_marginal_optimizer = 1.5
 matrix1_min_profit_usd = 10
 matrix1_max_slippage = 0.5
 matrix1_gas_price_buffer = 20
@@ -279,7 +279,7 @@ matrix1_token_safemars = "0x3aD9594151886Ce8538C1ff615EFa2385a8C3A88"
 
 # MATRIX2 Section
 matrix2_name = ""
-matrix2_profit_threshold = 0.0
+matrix2_marginal_optimizer = 0.0
 matrix2_min_profit_usd = 0.0
 matrix2_max_slippage = 0.0
 matrix2_gas_price_buffer = 1.0
@@ -409,7 +409,7 @@ matrix2_update_priority = 0
 
 # MATRIX3 Section
 matrix3_name = ""
-matrix3_profit_threshold = 0.0
+matrix3_marginal_optimizer = 0.0
 matrix3_min_profit_usd = 0.0
 matrix3_max_slippage = 0.0
 matrix3_gas_price_buffer = 1.0
@@ -539,7 +539,7 @@ matrix3_update_priority = 0
 
 # MATRIX4 Section
 matrix4_name = ""
-matrix4_profit_threshold = 0.0
+matrix4_marginal_optimizer = 0.0
 matrix4_min_profit_usd = 0.0
 matrix4_max_slippage = 0.0
 matrix4_gas_price_buffer = 1.0
@@ -669,7 +669,7 @@ matrix4_update_priority = 0
 
 # MATRIX5 Section
 matrix5_name = ""
-matrix5_profit_threshold = 0.0
+matrix5_marginal_optimizer = 0.0
 matrix5_min_profit_usd = 0.0
 matrix5_max_slippage = 0.0
 matrix5_gas_price_buffer = 1.0
@@ -799,7 +799,7 @@ matrix5_update_priority = 0
 
 # MATRIX6 Section
 matrix6_name = ""
-matrix6_profit_threshold = 0.0
+matrix6_marginal_optimizer = 0.0
 matrix6_min_profit_usd = 0.0
 matrix6_max_slippage = 0.0
 matrix6_gas_price_buffer = 1.0
@@ -929,7 +929,7 @@ matrix6_update_priority = 0
 
 # MATRIX7 Section
 matrix7_name = ""
-matrix7_profit_threshold = 0.0
+matrix7_marginal_optimizer = 0.0
 matrix7_min_profit_usd = 0.0
 matrix7_max_slippage = 0.0
 matrix7_gas_price_buffer = 1.0
@@ -1059,7 +1059,7 @@ matrix7_update_priority = 0
 
 # MATRIX8 Section
 matrix8_name = ""
-matrix8_profit_threshold = 0.0
+matrix8_marginal_optimizer = 0.0
 matrix8_min_profit_usd = 0.0
 matrix8_max_slippage = 0.0
 matrix8_gas_price_buffer = 1.0
@@ -1189,7 +1189,7 @@ matrix8_update_priority = 0
 
 # MATRIX9 Section
 matrix9_name = ""
-matrix9_profit_threshold = 0.0
+matrix9_marginal_optimizer = 0.0
 matrix9_min_profit_usd = 0.0
 matrix9_max_slippage = 0.0
 matrix9_gas_price_buffer = 1.0
@@ -1319,7 +1319,7 @@ matrix9_update_priority = 0
 
 # MATRIX10 Section
 matrix10_name = ""
-matrix10_profit_threshold = 0.0
+matrix10_marginal_optimizer = 0.0
 matrix10_min_profit_usd = 0.0
 matrix10_max_slippage = 0.0
 matrix10_gas_price_buffer = 1.0
