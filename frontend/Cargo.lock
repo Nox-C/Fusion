@@ -123,6 +123,7 @@ version = "0.1.0"
 dependencies = [
  "futures-util",
  "gloo-net 0.5.0",
+ "js-sys",
  "serde",
  "serde_json",
  "wasm-bindgen",

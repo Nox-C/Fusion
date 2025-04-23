@@ -2,7 +2,6 @@
 
 use serde::Deserialize;
 
-
 // --- Helper function to parse comma-separated strings ---
 fn parse_comma_separated_string<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
 where
@@ -16,7 +15,7 @@ where
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Default, Debug, Deserialize, Clone)]
 pub struct Settings {
     // Provider Priority
     pub provider_priority_order: Vec<String>,
@@ -307,4 +306,3 @@ pub struct Settings {
 }
 
 impl Settings {}
-

@@ -1,8 +1,12 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 use crate::analysis::AnalysisHub;
+use crate::config::Settings;
+use ethers::middleware::Middleware;
+use ethers::types::{Address, U256};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct DexPrice {
@@ -21,6 +25,8 @@ pub struct ArbitrageOpportunity {
     pub sell_price: f64,
     pub marginal_optimizer_pct: f64,
     pub timestamp: u64,
+    pub flashloan_provider: Address,
+    pub flashloan_amount: U256,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -30,13 +36,20 @@ pub struct Matrix {
     pub chain: String, // "ETH" or "BSC"
     pub marginal_optimizer: f64,
     pub dex_prices: HashMap<String, DexPrice>, // key = DEX name
-    pub opportunities: Vec<String>, // Replace with real struct if you have one
-    pub recent_transactions: Vec<String>, // Replace with real struct if you have one
+    pub opportunities: Vec<ArbitrageOpportunity>,
+    pub recent_transactions: Vec<Transaction>,
     pub status: String,
 }
 
-
-use std::sync::{Arc, Mutex};
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Transaction {
+    pub tx_hash: String,
+    pub from: String,
+    pub to: String,
+    pub amount: f64,
+    pub timestamp: u64,
+    pub status: String,
+}
 
 #[derive(Clone)]
 pub struct MatrixManager {
@@ -44,47 +57,44 @@ pub struct MatrixManager {
 }
 
 impl MatrixManager {
+    /// Create a new MatrixManager with a default ETH matrix. In production, matrices should be loaded from config or blockchain.
     pub fn new() -> Self {
-        let mut eth_prices = HashMap::new();
-        eth_prices.insert("PancakeSwap".into(), DexPrice { dex: "PancakeSwap".into(), price: 0.0, timestamp: 0 });
-        eth_prices.insert("Uniswap".into(), DexPrice { dex: "Uniswap".into(), price: 0.0, timestamp: 0 });
-        let mut bsc_prices = HashMap::new();
-        bsc_prices.insert("PancakeSwap".into(), DexPrice { dex: "PancakeSwap".into(), price: 0.0, timestamp: 0 });
-        bsc_prices.insert("Biswap".into(), DexPrice { dex: "Biswap".into(), price: 0.0, timestamp: 0 });
-        let matrices = vec![
-            Matrix {
-                id: "matrix_eth_1".into(),
-                name: "ETH Matrix 1".into(),
-                chain: "ETH".into(),
-                marginal_optimizer: 123.45,
-                dex_prices: eth_prices,
-                opportunities: vec!["Arb1".into(), "Arb2".into()],
-                recent_transactions: vec!["Tx1".into(), "Tx2".into()],
-                status: "Active".into(),
-            },
-            Matrix {
-                id: "matrix_bsc_1".into(),
-                name: "BSC Matrix 1".into(),
-                chain: "BSC".into(),
-                marginal_optimizer: 67.89,
-                dex_prices: bsc_prices,
-                opportunities: vec!["ArbA".into()],
-                recent_transactions: vec!["TxA".into()],
-                status: "Paused".into(),
-            },
-        ];
+        // Initialize with a default ETH matrix so manager.all() is not empty
+        let mut initial_matrices = Vec::new();
+        initial_matrices.push(Matrix {
+            id: "ETH".to_string(),
+            name: "ETH Matrix".to_string(),
+            chain: "ETH".to_string(),
+            marginal_optimizer: 0.0,
+            dex_prices: HashMap::new(),
+            opportunities: Vec::new(),
+            recent_transactions: Vec::new(),
+            status: "Active".to_string(),
+        });
         Self {
-            matrices: Arc::new(Mutex::new(matrices)),
+            matrices: Arc::new(Mutex::new(initial_matrices)),
         }
     }
+    // Add a method to load matrices from config or blockchain as needed.
+}
 
+impl Default for MatrixManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MatrixManager {
     pub fn all(&self) -> Vec<Matrix> {
         self.matrices.lock().unwrap().clone()
     }
 
     /// Atomically update a DEX price for a given matrix (by id and dex name)
     pub fn update_dex_price(&self, matrix_id: &str, dex: &str, price: f64) {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
         let mut matrices = self.matrices.lock().unwrap();
         if let Some(matrix) = matrices.iter_mut().find(|m| m.id == matrix_id) {
             matrix.dex_prices.insert(
@@ -98,9 +108,13 @@ impl MatrixManager {
         }
     }
 
-    /// Scan for arbitrage opportunities in all matrices using the AnalysisHub
-    pub fn scan_for_arbitrage_opportunities(&self, marginal_optimizer: f64) -> Vec<ArbitrageOpportunity> {
+    /// Async scan for arbitrage opportunities in all matrices with flashloan integration.
+    pub async fn scan_for_arbitrage_opportunities<M: Middleware + 'static>(
+        &self,
+        settings: &Settings,
+        client: Arc<M>,
+    ) -> Vec<ArbitrageOpportunity> {
         let matrices = self.matrices.lock().unwrap();
-        AnalysisHub::scan_all(&matrices, marginal_optimizer)
+        AnalysisHub::scan_all(&matrices, settings, client).await
     }
 }

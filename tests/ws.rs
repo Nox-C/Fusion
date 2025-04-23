@@ -1,7 +1,7 @@
 // Integration test for the /ws/matrices WebSocket endpoint
-use awc::Client;
-use futures_util::{StreamExt, SinkExt};
 use actix_web_actors::ws;
+use awc::Client;
+use futures_util::{SinkExt, StreamExt};
 
 #[actix_web::test]
 async fn test_ws_echo() {
@@ -15,7 +15,10 @@ async fn test_ws_echo() {
     // Start the server in a background task
     let srv = actix_rt::spawn(async move {
         actix_web::HttpServer::new(|| {
-            App::new().route("/ws/matrices", actix_web::web::get().to(fusion::api::ws_matrices_handler))
+            App::new().route(
+                "/ws/matrices",
+                actix_web::web::get().to(fusion::api::ws_matrices_handler),
+            )
         })
         .listen(listener)
         .expect("Failed to listen")
@@ -43,7 +46,10 @@ async fn test_ws_echo() {
     }
 
     // Test echo functionality
-    framed.send(ws::Message::Text("Hello".into())).await.expect("Send text");
+    framed
+        .send(ws::Message::Text("Hello".into()))
+        .await
+        .expect("Send text");
     if let Some(Ok(ws::Frame::Text(txt))) = framed.next().await {
         assert!(String::from_utf8_lossy(&txt).contains("Echo: Hello"));
     } else {

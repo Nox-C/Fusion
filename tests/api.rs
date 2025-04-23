@@ -1,17 +1,25 @@
 // Tests for REST and WebSocket API endpoints
 
-#[test]
-fn test_api_matrices_endpoint() {
-    // This is a placeholder; in real test, spin up server and check endpoint
-    // let resp = get("http://localhost:8000/api/matrices").unwrap();
-    // assert!(resp.status().is_success());
-    assert!(true); // Placeholder
-}
+use actix_web::{App, test, web};
+use fusion::api::get_matrices;
+use fusion::matrix::{Matrix, MatrixManager};
+use std::sync::Arc;
 
-#[test]
-fn test_websocket_matrix_updates() {
-    // This is a placeholder for WebSocket test
-    // let (mut socket, response) = connect("ws://localhost:8000/ws/matrix-updates").unwrap();
-    // socket.write_message(...)
-    assert!(true); // Placeholder
+#[actix_web::test]
+async fn test_api_matrices_endpoint() {
+    // Initialize MatrixManager with default matrix
+    let matrix_manager = Arc::new(MatrixManager::new());
+    // Build test app
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(matrix_manager.clone()))
+            .service(get_matrices),
+    )
+    .await;
+    // Send request to /api/matrices
+    let req = test::TestRequest::get().uri("/api/matrices").to_request();
+    let resp: Vec<Matrix> = test::call_and_read_body_json(&app, req).await;
+    // Verify response contains at least the default ETH matrix
+    assert!(!resp.is_empty());
+    assert_eq!(resp[0].chain, "ETH");
 }

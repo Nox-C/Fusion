@@ -2,11 +2,11 @@
 
 use crate::config::Settings; // Use crate:: to refer to config module in the same crate
 use crate::providers_round_robin::{ProviderEntry, ProviderRotation};
-use ethers::providers::{Provider, Http, Ws, ProviderError, Middleware};
+use ethers::providers::{Http, Middleware, Provider, ProviderError, Ws};
 use ethers::signers::{LocalWallet, Signer};
 use std::sync::Arc;
-use url::Url;
-use thiserror::Error; // For custom error types
+use thiserror::Error;
+use url::Url; // For custom error types
 
 #[derive(Debug, Error)]
 pub enum ProviderManagerError {
@@ -62,7 +62,8 @@ impl ProviderManager {
     }
     pub async fn new(settings: Arc<Settings>) -> Result<Self, ProviderManagerError> {
         // Create wallet from private key
-        let wallet = settings.private_key
+        let wallet = settings
+            .private_key
             .parse::<LocalWallet>()
             .map_err(|e| ProviderManagerError::WalletError(e.to_string()))?;
 
@@ -72,46 +73,54 @@ impl ProviderManager {
             &settings,
             Chain::BscMainnet,
             wallet.clone(), // Clone wallet for the middleware
-        ).await;
+        )
+        .await;
 
         // --- Try connecting to ETH Mainnet ---
-         let eth_provider = Self::connect_chain(
+        let eth_provider = Self::connect_chain(
             &settings.provider_priority_order,
             &settings,
             Chain::EthMainnet,
             wallet.clone(), // Clone wallet for the middleware
-        ).await;
+        )
+        .await;
 
         // Check if at least one connection succeeded (adjust as needed)
         if bsc_provider.is_err() && eth_provider.is_err() {
-             return Err(ProviderManagerError::NoValidProvider);
+            return Err(ProviderManagerError::NoValidProvider);
         }
 
         // Prepare round-robin rotations for BSC and ETH (future use)
-        let bsc_rotation = Some(ProviderRotation::new(vec![
-            ProviderEntry {
-                name: "BSC-Primary".to_string(),
-                url: settings.bsc_rpc_url.clone(),
-                max_requests_per_minute: 60,
-                last_used: None,
-                cooldown_until: None,
-                requests_this_window: 0,
-                window_start: None,
-            },
-            // Add more BSC providers here as needed
-        ], std::time::Duration::from_secs(60)));
-        let eth_rotation = Some(ProviderRotation::new(vec![
-            ProviderEntry {
-                name: "ETH-Primary".to_string(),
-                url: settings.eth_rpc_url.clone(),
-                max_requests_per_minute: 60,
-                last_used: None,
-                cooldown_until: None,
-                requests_this_window: 0,
-                window_start: None,
-            },
-            // Add more ETH providers here as needed
-        ], std::time::Duration::from_secs(60)));
+        let bsc_rotation = Some(ProviderRotation::new(
+            vec![
+                ProviderEntry {
+                    name: "BSC-Primary".to_string(),
+                    url: settings.bsc_rpc_url.clone(),
+                    max_requests_per_minute: 60,
+                    last_used: None,
+                    cooldown_until: None,
+                    requests_this_window: 0,
+                    window_start: None,
+                },
+                // Add more BSC providers here as needed
+            ],
+            std::time::Duration::from_secs(60),
+        ));
+        let eth_rotation = Some(ProviderRotation::new(
+            vec![
+                ProviderEntry {
+                    name: "ETH-Primary".to_string(),
+                    url: settings.eth_rpc_url.clone(),
+                    max_requests_per_minute: 60,
+                    last_used: None,
+                    cooldown_until: None,
+                    requests_this_window: 0,
+                    window_start: None,
+                },
+                // Add more ETH providers here as needed
+            ],
+            std::time::Duration::from_secs(60),
+        ));
 
         Ok(Self {
             bsc_provider: bsc_provider.ok(), // Store Ok result, None otherwise
@@ -129,15 +138,15 @@ impl ProviderManager {
         chain: Chain,
         wallet: LocalWallet,
     ) -> Result<ChainProvider, ProviderManagerError> {
-
-        let (chain_id, get_urls): (u64, fn(&Settings, &str) -> Option<String>) = match chain {
+        type ProviderUrlFn = fn(&Settings, &str) -> Option<String>;
+        let (chain_id, get_urls): (u64, ProviderUrlFn) = match chain {
             Chain::BscMainnet => (56, |s, p| match p {
                 "Infura" => Some(s.bsc_rpc_url.clone()),
                 "Alchemy" => Some(s.alchemy_bsc_rpc_url.clone()),
                 "NodeReal" => Some(s.nodereal_bsc_rpc_url.clone()),
                 _ => None,
             }),
-             Chain::EthMainnet => (1, |s, p| match p {
+            Chain::EthMainnet => (1, |s, p| match p {
                 "Infura" => Some(s.eth_rpc_url.clone()),
                 "Alchemy" => Some(s.alchemy_eth_rpc_url.clone()),
                 "NodeReal" => Some(s.nodereal_eth_rpc_url.clone()),
@@ -146,11 +155,17 @@ impl ProviderManager {
             // Add other chains (BscTestnet, EthSepolia) here if needed
         };
 
-        println!("Attempting to connect to {:?} (Chain ID: {})...", chain, chain_id);
+        println!(
+            "Attempting to connect to {:?} (Chain ID: {})...",
+            chain, chain_id
+        );
 
         for provider_name in priority {
             if let Some(rpc_url_str) = get_urls(settings, provider_name) {
-                println!("  Trying provider: {} at URL: {}", provider_name, rpc_url_str);
+                println!(
+                    "  Trying provider: {} at URL: {}",
+                    provider_name, rpc_url_str
+                );
                 let url = match Url::parse(&rpc_url_str) {
                     Ok(url) => url,
                     Err(e) => {
@@ -167,18 +182,27 @@ impl ProviderManager {
                         // Add wallet middleware
                         let signer_provider = ethers::middleware::SignerMiddleware::new(
                             provider,
-                            wallet.with_chain_id(chain_id) // Ensure wallet has correct chain ID
+                            wallet.with_chain_id(chain_id), // Ensure wallet has correct chain ID
                         );
                         return Ok(ChainProvider {
                             http_provider: Arc::new(signer_provider),
                             chain_id,
                         });
-                    },
-                    Ok(id) => eprintln!("    Warning: Connected to {} but chain ID mismatch (Expected: {}, Got: {})", provider_name, chain_id, id),
-                    Err(e) => eprintln!("    Warning: Failed to verify connection to {}: {}", provider_name, e),
+                    }
+                    Ok(id) => eprintln!(
+                        "    Warning: Connected to {} but chain ID mismatch (Expected: {}, Got: {})",
+                        provider_name, chain_id, id
+                    ),
+                    Err(e) => eprintln!(
+                        "    Warning: Failed to verify connection to {}: {}",
+                        provider_name, e
+                    ),
                 }
             } else {
-                eprintln!("    Skipping unsupported provider for this chain: {}", provider_name);
+                eprintln!(
+                    "    Skipping unsupported provider for this chain: {}",
+                    provider_name
+                );
             }
         }
 
@@ -234,4 +258,3 @@ mod tests {
         assert!(pm.next_bsc_provider().is_none());
     }
 }
-

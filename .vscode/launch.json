@@ -1,0 +1,140 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'fusion'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=fusion"
+                ],
+                "filter": {
+                    "name": "fusion",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'fusion'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=fusion",
+                    "--package=fusion"
+                ],
+                "filter": {
+                    "name": "fusion",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'fusion'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=fusion",
+                    "--package=fusion"
+                ],
+                "filter": {
+                    "name": "fusion",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'api'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=api",
+                    "--package=fusion"
+                ],
+                "filter": {
+                    "name": "api",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'arbitrage'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=arbitrage",
+                    "--package=fusion"
+                ],
+                "filter": {
+                    "name": "arbitrage",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'matrix_manager'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=matrix_manager",
+                    "--package=fusion"
+                ],
+                "filter": {
+                    "name": "matrix_manager",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'ws'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=ws",
+                    "--package=fusion"
+                ],
+                "filter": {
+                    "name": "ws",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

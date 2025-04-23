@@ -53,7 +53,9 @@ impl ProviderRotation {
                     entry.requests_this_window = 0;
                 }
 
-                if entry.is_available() && entry.requests_this_window < entry.max_requests_per_minute {
+                if entry.is_available()
+                    && entry.requests_this_window < entry.max_requests_per_minute
+                {
                     entry.last_used = Some(now);
                     entry.requests_this_window += 1;
                     self.providers.push_back(entry.clone());
@@ -123,17 +125,15 @@ mod tests {
     #[test]
     fn test_provider_failure_and_cooldown() {
         let mut rotation = ProviderRotation::new(
-            vec![
-                ProviderEntry {
-                    name: "A".into(),
-                    url: "urlA".into(),
-                    max_requests_per_minute: 2,
-                    last_used: None,
-                    cooldown_until: None,
-                    requests_this_window: 0,
-                    window_start: None,
-                },
-            ],
+            vec![ProviderEntry {
+                name: "A".into(),
+                url: "urlA".into(),
+                max_requests_per_minute: 2,
+                last_used: None,
+                cooldown_until: None,
+                requests_this_window: 0,
+                window_start: None,
+            }],
             Duration::from_secs(60),
         );
         assert!(rotation.next_provider().is_some());

@@ -42,14 +42,14 @@ impl WebSocketManager {
         if let Some(url) = self.get_chain_ws_url(Chain::BscMainnet) {
             futures.push(Self::connect_and_listen("BSC_Primary".to_string(), url));
         } else {
-             eprintln!("Warning: Could not determine primary WebSocket URL for BSC Mainnet.");
+             log::warn!("Warning: Could not determine primary WebSocket URL for BSC Mainnet.");
         }
 
         // --- ETH Primary WebSocket ---
          if let Some(url) = self.get_chain_ws_url(Chain::EthMainnet) {
             futures.push(Self::connect_and_listen("ETH_Primary".to_string(), url));
         } else {
-             eprintln!("Warning: Could not determine primary WebSocket URL for ETH Mainnet.");
+             log::warn!("Warning: Could not determine primary WebSocket URL for ETH Mainnet.");
         }
 
         // --- DEX Specific WebSockets ---
@@ -65,22 +65,22 @@ impl WebSocketManager {
         self.add_dex_ws_future(&mut futures, "DODO", &self.settings.websocket_dodo);
         self.add_dex_ws_future(&mut futures, "Ellipsis", &self.settings.websocket_ellipsis);
 
-        println!("Attempting to establish all WebSocket connections...");
+        log::warn!("Attempting to establish all WebSocket connections...");
 
         // Process connection results as they complete
         while let Some(result) = futures.next().await {
              match result {
                 Ok((name, ws_provider, handle)) => {
-                    println!("--> Successfully connected WebSocket for: {}", name);
+                    log::warn!("--> Successfully connected WebSocket for: {}", name);
                     self.connections.insert(name, (ws_provider, handle));
                 }
                 Err(e) => {
                     // Log the error but continue trying other connections
-                    eprintln!("--> WebSocket connection error: {}", e);
+                    log::warn!("--> WebSocket connection error: {}", e);
                 }
             }
         }
-         println!("Finished attempting all WebSocket connections. Active count: {}", self.connections.len());
+         log::warn!("Finished attempting all WebSocket connections. Active count: {}", self.connections.len());
     }
 
     // Helper to add DEX WebSocket connection future
@@ -91,7 +91,7 @@ impl WebSocketManager {
         url_str: &str
     ) {
         if url_str.is_empty() {
-             eprintln!("Warning: Skipping DEX WebSocket for {} due to empty URL.", name);
+             log::warn!("Warning: Skipping DEX WebSocket for {} due to empty URL.", name);
             return;
         }
         futures.push(Self::connect_and_listen(name.to_string(), url_str.to_string()));
@@ -116,19 +116,19 @@ impl WebSocketManager {
             // Add other chains if needed
         };
 
-        println!("Searching for WebSocket URL for {:?}...", chain);
+        log::warn!("Searching for WebSocket URL for {:?}...", chain);
         for provider_name in &self.settings.provider_priority_order {
             if let Some(url) = get_urls(&self.settings, provider_name) {
                 // Basic check: is the URL non-empty?
                 if !url.is_empty() {
-                     println!("   Found URL via {}: {}", provider_name, url);
+                     log::warn!("   Found URL via {}: {}", provider_name, url);
                     return Some(url);
                 } else {
-                     println!("   Provider {} has empty URL for {:?}, skipping.", provider_name, chain);
+                     log::warn!("   Provider {} has empty URL for {:?}, skipping.", provider_name, chain);
                 }
             } else {
                  // This case should ideally not happen if priority list matches available settings
-                 println!("   Provider {} not configured for {:?} WebSocket.", provider_name, chain);
+                 log::warn!("   Provider {} not configured for {:?} WebSocket.", provider_name, chain);
             }
         }
         None // No suitable URL found
@@ -139,7 +139,7 @@ impl WebSocketManager {
         name: String,
         url_str: String,
     ) -> Result<(String, Arc<Provider<Ws>>, JoinHandle<()>), WebSocketError> {
-        println!("   Attempting WebSocket connection to: {} ({})", name, url_str);
+        log::warn!("   Attempting WebSocket connection to: {} ({})", name, url_str);
         let ws = Ws::connect(url_str.clone())
             .await
             .map_err(|e| WebSocketError::ConnectionFailed(url_str.clone(), e.to_string()))?;
@@ -149,10 +149,10 @@ impl WebSocketManager {
         let provider_clone = provider.clone();
         let name_clone = name.clone();
         let handle = tokio::spawn(async move {
-            println!("   Listener spawned for: {}", name_clone);
+            log::warn!("   Listener spawned for: {}", name_clone);
             match provider_clone.subscribe_blocks().await {
                 Ok(mut stream) => {
-                     println!("   Subscribed to new blocks on: {}", name_clone);
+                     log::warn!("   Subscribed to new blocks on: {}", name_clone);
                     while let Some(block) = stream.next().await {
                         // --- Simulate a DEX price update and arbitrage scan ---
                         // In real code, you would extract price data from the DEX feed here
@@ -164,7 +164,7 @@ impl WebSocketManager {
                         // TODO: Pass matrix_manager and marginal_optimizer via closure or context
                         // matrix_manager.update_dex_price(matrix_id, dex, price);
                         // let opps = matrix_manager.scan_for_arbitrage_opportunities(marginal_optimizer);
-                        println!(
+                        log::warn!(
                             "[{}] New Block: Number={:?}, Hash={:?}, Simulated {} price: {}",
                             name_clone,
                             block.number.map(|n| n.as_u64()),
@@ -173,15 +173,15 @@ impl WebSocketManager {
                             price
                         );
                         // For each opportunity, print or trigger downstream logic
-                        // for opp in opps { println!("Found arbitrage: {}", opp); }
+                        // for opp in opps { log::warn!("Found arbitrage: {}", opp); }
                     }
-                     eprintln!("Block stream ended unexpectedly for: {}", name_clone); // Should ideally not happen unless WS disconnects
+                     log::warn!("Block stream ended unexpectedly for: {}", name_clone); // Should ideally not happen unless WS disconnects
                 }
                 Err(e) => {
-                    eprintln!("Error subscribing to blocks for {}: {}", name_clone, e);
+                    log::warn!("Error subscribing to blocks for {}: {}", name_clone, e);
                 }
             }
-             eprintln!("WebSocket listener task finished for: {}", name_clone);
+             log::warn!("WebSocket listener task finished for: {}", name_clone);
         });
 
         Ok((name, provider, handle))
@@ -189,13 +189,13 @@ impl WebSocketManager {
 
     // Method to gracefully shut down listeners
     pub async fn shutdown(&mut self) {
-        println!("Shutting down WebSocket listeners...");
+        log::warn!("Shutting down WebSocket listeners...");
         let count = self.connections.len();
         for (name, (_, handle)) in self.connections.drain() {
-             println!("   Aborting listener for: {}", name);
+             log::warn!("   Aborting listener for: {}", name);
             handle.abort();
         }
-         println!("{} WebSocket listeners shut down.", count);
+         log::warn!("{} WebSocket listeners shut down.", count);
     }
 }
 

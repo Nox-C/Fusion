@@ -1,6 +1,7 @@
-pub mod config;
-pub mod matrix;
 pub mod analysis;
-pub mod providers_round_robin;
-pub mod providers;
 pub mod api;
+pub mod config;
+pub mod flashloan;
+pub mod matrix;
+pub mod providers;
+pub mod providers_round_robin;
