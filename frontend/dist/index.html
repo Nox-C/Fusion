@@ -1,16 +1,16 @@
+hurry up
+
+
+
 <!DOCTYPE html>
 <html>
-  <head><meta charset="utf-8"><title>Fusion GUI</title><link rel="modulepreload" href="/frontend-22e6be815a2df6a1.js" crossorigin="anonymous" integrity="sha384-vLq9vXCPBq6agFYYdsA0xbbv9I49KfP7qFnZjOlGbS5zLYLXveAuDUcmG350Z/Qo"><link rel="preload" href="/frontend-22e6be815a2df6a1_bg.wasm" crossorigin="anonymous" integrity="sha384-QKy26wkrFWVk8TC5T/0YusooHzpxSVzqAf6K+OYQL45D4smzsqZuImoI14FWShIO" as="fetch" type="application/wasm"></head>
-  <body>
-    <div id="root"></div>
-    <script type="module">
-      import init from "./frontend.js";
-      init();
-    </script>
-  
+  <head>
+    <meta charset="utf-8">
+    <title>Fusion</title>
+    
 <script type="module">
-import init, * as bindings from '/frontend-22e6be815a2df6a1.js';
-const wasm = await init({ module_or_path: '/frontend-22e6be815a2df6a1_bg.wasm' });
+import init, * as bindings from '/frontend-bin-3c92bdda09bca68f.js';
+const wasm = await init({ module_or_path: '/frontend-bin-3c92bdda09bca68f_bg.wasm' });
 
 
 window.wasmBindings = bindings;
@@ -18,5 +18,18 @@ window.wasmBindings = bindings;
 
 dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
 
-</script></body>
+</script>
+    <link rel="stylesheet" href="/sci_fi-564a6089021a8cea.css" integrity="sha384-gC8VbHgDCgzwUG/h0lQOz9fjgw11Hi4uoVjXxeEJKbeM4O8MQyN5w3u0qB9VUaAK"/>
+    <style>
+      :root { --primary: 222.2 47.4% 11.2%; --radius: 0.5rem; }
+      html { color-scheme: dark; background: hsl(var(--background)); }
+    </style>
+  <link rel="modulepreload" href="/frontend-bin-3c92bdda09bca68f.js" crossorigin="anonymous" integrity="sha384-U8SOcaIeMvDuNrQDQePKei3yT97AHIRg3fme+7qdvjruSO0E/oEhBWvD3ZMYiJ/M"><link rel="preload" href="/frontend-bin-3c92bdda09bca68f_bg.wasm" crossorigin="anonymous" integrity="sha384-ZY+tOBEkvLWCfl9svPPAGbM46yFdp16NGHVl8j2K15GgzsoWqitm4ZrqjKY01T5F" as="fetch" type="application/wasm"></head>
+  <body>
+    <div id="root"></div>
+    <script type="module">
+      import init from "./frontend.js";
+      init();
+    </script>
+  </body>
 </html>

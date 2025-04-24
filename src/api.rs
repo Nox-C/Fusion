@@ -2,6 +2,7 @@ use crate::matrix::MatrixManager;
 use crate::providers::ProviderManager;
 use actix_web::{Error, HttpRequest, HttpResponse, Responder, get, post, web};
 use actix_web_actors::ws;
+use actix::prelude::*;
 use std::sync::Arc;
 
 use ethers::middleware::Middleware;
@@ -99,7 +100,7 @@ pub async fn post_transfer(
     match send_result {
         Ok(pending) => match pending.await {
             Ok(Some(receipt)) => {
-                return HttpResponse::Ok().json(serde_json::json!({"status": "success", "tx_hash": format!("0x{:x}", receipt.transaction_hash)}));
+                HttpResponse::Ok().json(serde_json::json!({"status": "success", "tx_hash": format!("0x{:x}", receipt.transaction_hash)}))
             }
             Ok(None) => {
                 log::error!(
@@ -108,18 +109,18 @@ pub async fn post_transfer(
                     to_addr,
                     amount
                 );
-                return HttpResponse::InternalServerError().json(serde_json::json!({"status": "error", "reason": "Transaction pending or dropped"}));
+                HttpResponse::InternalServerError().json(serde_json::json!({"status": "error", "reason": "Transaction pending or dropped"}))
             }
             Err(e) => {
                 log::error!("Error waiting for transaction receipt: {}", e);
-                return HttpResponse::InternalServerError().json(serde_json::json!({"status": "error", "reason": "Failed to get transaction receipt"}));
+                HttpResponse::InternalServerError().json(serde_json::json!({"status": "error", "reason": "Failed to get transaction receipt"}))
             }
         },
         Err(e) => {
             log::error!("Error sending transaction: {}", e);
-            return HttpResponse::InternalServerError().json(
+            HttpResponse::InternalServerError().json(
                 serde_json::json!({"status": "error", "reason": "Failed to send transaction"}),
-            );
+            )
         }
     }
 }
@@ -139,31 +140,33 @@ pub async fn post_connect_wallet(provider_data: web::Data<Arc<ProviderManager>>)
 }
 
 // --- WebSocket Handler ---
-pub async fn ws_matrices_handler(
-    req: HttpRequest,
-    stream: web::Payload,
-) -> Result<HttpResponse, Error> {
-    ws::start(crate::api::MatrixWs {}, &req, stream)
+use serde_json;
+
+#[get("/ws/matrices")]
+pub async fn ws_matrices_handler(matrix_data: web::Data<Arc<MatrixManager>>, req: HttpRequest, stream: web::Payload) -> Result<HttpResponse, Error> {
+    let ws_actor = MatrixWs { manager: matrix_data.get_ref().clone() };
+    ws::start(ws_actor, &req, stream)
 }
 
-use actix::{Actor, ActorContext, StreamHandler};
-pub struct MatrixWs;
-
-use actix::prelude::*;
-use serde_json::json;
+pub struct MatrixWs {
+    manager: Arc<MatrixManager>,
+}
 
 impl Actor for MatrixWs {
     type Context = ws::WebsocketContext<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        ctx.text("Welcome to Fusion Matrix WebSocket!");
-        ctx.run_interval(Duration::from_secs(5), |_act, ctx| {
-            // Simulate live matrix update
-            let now = chrono::Utc::now().to_rfc3339();
-            ctx.text(
-                json!({"type": "matrix_update", "timestamp": now, "message": "Live matrix update"})
-                    .to_string(),
-            );
+        // Send initial matrices snapshot
+        if let Ok(initial) = serde_json::to_string(&self.manager.all()) {
+            ctx.text(initial);
+        }
+        // Periodic matrices updates
+        let manager = self.manager.clone();
+        ctx.run_interval(Duration::from_secs(5), move |_act, ctx| {
+            let matrices = manager.all();
+            if let Ok(json) = serde_json::to_string(&matrices) {
+                ctx.text(json);
+            }
         });
         log::info!("WebSocket client connected");
     }
@@ -173,7 +176,7 @@ impl Actor for MatrixWs {
     }
 }
 
-impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MatrixWs {
+impl actix::StreamHandler<Result<ws::Message, ws::ProtocolError>> for MatrixWs {
     fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
         match msg {
             Ok(ws::Message::Text(text)) => {

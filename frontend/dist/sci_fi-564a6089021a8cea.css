@@ -1,0 +1,121 @@
+/* Sci-Fi Dashboard Styles */
+
+body, html {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #181c20 0%, #0e0f1a 100%);
+  color: #f5f6fa;
+  font-family: 'Segoe UI', Arial, sans-serif;
+  overflow-x: hidden;
+}
+
+.fusion-dashboard {
+  position: relative;
+  min-height: 100vh;
+  z-index: 1;
+}
+
+.hud-bg {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100vw; height: 100vh;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.35;
+}
+
+.hud-stat-row {
+  margin-top: 4rem;
+  display: flex;
+  gap: 2.5rem;
+  justify-content: center;
+  z-index: 2;
+}
+
+.hud-stat-card {
+  background: rgba(16,24,32,0.85);
+  border: 2px solid #00fff7;
+  border-radius: 1.1rem;
+  box-shadow: 0 0 16px #00fff7a0, 0 1px 4px #0008;
+  padding: 2.4rem 2.2rem 1.6rem 2.2rem;
+  text-align: center;
+  min-width: 150px;
+  color: #fff;
+  font-size: 1.6rem;
+  transition: border 0.3s, box-shadow 0.3s;
+}
+
+.hud-stat-card .label {
+  font-size: 1.1rem;
+  color: #00fff7;
+  opacity: 0.85;
+  margin-bottom: 0.7rem;
+}
+
+.hud-stat-card .value {
+  font-size: 2.2rem;
+  font-weight: bold;
+  color: #fff;
+  margin-bottom: 0.2rem;
+}
+
+/* Orb Styles */
+.ai-orb-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  animation: orb-float 3s ease-in-out infinite;
+}
+
+@keyframes orb-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-16px); }
+}
+
+.ai-orb-pulse-idle svg circle:first-child {
+  filter: drop-shadow(0 0 24px #00fff7cc) drop-shadow(0 0 48px #ae00ff99);
+}
+
+.ai-orb-pulse-speaking svg circle:first-child {
+  filter: drop-shadow(0 0 32px #00fff7) drop-shadow(0 0 64px #ae00ff);
+  animation: orb-glow 1.2s alternate infinite;
+}
+
+.ai-orb-pulse-listening svg circle:first-child {
+  filter: drop-shadow(0 0 24px #ae00ff) drop-shadow(0 0 44px #00fff7);
+  animation: orb-glow 1.8s alternate infinite;
+}
+
+@keyframes orb-glow {
+  0% { filter: drop-shadow(0 0 24px #00fff7cc) drop-shadow(0 0 48px #ae00ff99); }
+  100% { filter: drop-shadow(0 0 48px #00fff7) drop-shadow(0 0 96px #ae00ff); }
+}
+
+.ai-orb-message {
+  margin-top: 1.2rem;
+  background: rgba(16,24,32,0.92);
+  border: 1.5px solid #00fff7;
+  border-radius: 0.7rem;
+  color: #00fff7;
+  font-size: 1.05rem;
+  padding: 0.7rem 1.2rem;
+  box-shadow: 0 2px 12px #00fff755;
+  max-width: 320px;
+  text-align: center;
+  z-index: 2;
+}
+
+/* Responsive Layout */
+@media (max-width: 700px) {
+  .hud-stat-row {
+    flex-direction: column;
+    align-items: center;
+    gap: 1.2rem;
+  }
+  .ai-orb-message {
+    font-size: 0.95rem;
+    max-width: 90vw;
+  }
+}

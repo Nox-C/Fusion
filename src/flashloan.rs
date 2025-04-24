@@ -91,6 +91,27 @@ pub fn choose_best_provider(
     best
 }
 
+/// Select the best flashloan provider and amount (using liquidity_usage_percentage).
+pub async fn select_best_flashloan_provider<M: Middleware + 'static>(
+    settings: &Settings,
+    client: Arc<M>,
+    asset: Address,
+) -> Option<(Address, U256)> {
+    let mut best: Option<(Address, U256)> = None;
+    for entry in &settings.flash_loan_providers {
+        if let Some(provider) = FlashloanProvider::from_entry(entry) {
+            if let Some(liquidity) = query_liquidity(&provider, asset, client.clone()).await {
+                let liq_f64 = liquidity.as_u128() as f64;
+                let usage = U256::from((settings.liquidity_usage_percentage * liq_f64) as u128);
+                if best.is_none() || usage > best.as_ref().unwrap().1 {
+                    best = Some((provider.address, usage));
+                }
+            }
+        }
+    }
+    best
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -122,25 +143,4 @@ mod tests {
         assert_eq!(res.0, a2);
         assert_eq!(res.1, U256::from(90u64));
     }
-}
-
-/// Select the best flashloan provider and amount (using liquidity_usage_percentage).
-pub async fn select_best_flashloan_provider<M: Middleware + 'static>(
-    settings: &Settings,
-    client: Arc<M>,
-    asset: Address,
-) -> Option<(Address, U256)> {
-    let mut best: Option<(Address, U256)> = None;
-    for entry in &settings.flash_loan_providers {
-        if let Some(provider) = FlashloanProvider::from_entry(entry) {
-            if let Some(liquidity) = query_liquidity(&provider, asset, client.clone()).await {
-                let liq_f64 = liquidity.as_u128() as f64;
-                let usage = U256::from((settings.liquidity_usage_percentage * liq_f64) as u128);
-                if best.is_none() || usage > best.as_ref().unwrap().1 {
-                    best = Some((provider.address, usage));
-                }
-            }
-        }
-    }
-    best
 }

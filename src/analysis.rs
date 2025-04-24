@@ -5,6 +5,7 @@ use ethers::middleware::Middleware;
 use ethers::types::{Address, U256};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use log::info;
 
 /// The AnalysisHub is responsible for running arbitrage analysis on all matrices.
 pub struct AnalysisHub;
@@ -17,6 +18,10 @@ impl AnalysisHub {
         settings: &Settings,
         client: Arc<M>,
     ) -> Vec<ArbitrageOpportunity> {
+        info!("[SCAN] Matrix: {} | Chain: {} | DEXes: {}", matrix.name, matrix.chain, matrix.dex_prices.keys().cloned().collect::<Vec<_>>().join(", "));
+        for (dex, price) in &matrix.dex_prices {
+            info!("[SCAN]   DEX: {} | Price: {} | Timestamp: {}", dex, price.price, price.timestamp);
+        }
         let mut opps = Vec::new();
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)

@@ -1,12 +1,12 @@
 // Yew component for displaying matrices (scaffold)
-use yew::prelude::*;
+use yew::{function_component, html, Html, use_state, use_effect_with};
 
-use yew::prelude::*;
 use serde::Deserialize;
 use wasm_bindgen_futures::spawn_local;
 use gloo_net::websocket::{futures::WebSocket, Message};
 use futures_util::StreamExt;
 use serde_json;
+use web_sys::window;
 
 use std::collections::HashMap;
 
@@ -56,30 +56,19 @@ pub fn matrix_panel() -> Html {
     {
         let matrices = matrices.clone();
         use_effect_with((), move |_| {
-            // Initial REST fetch
+            // WebSocket for live updates only
             spawn_local({
                 let matrices = matrices.clone();
                 async move {
-                    let resp = gloo_net::http::Request::get("/api/matrices")
-                        .send()
-                        .await;
-                    if let Ok(resp) = resp {
-                        if let Ok(data) = resp.json::<Vec<Matrix>>().await {
-                            matrices.set(data);
-                        }
-                    }
-                }
-            });
-            // WebSocket for live updates
-            spawn_local({
-                let matrices = matrices.clone();
-                async move {
-                    let ws = WebSocket::open("ws://localhost:8000/ws/matrices");
-                    if let Ok(mut ws) = ws {
+                    let loc = window().unwrap().location();
+                    let host = loc.host().unwrap();
+                    let proto = if loc.protocol().unwrap() == "https:" { "wss" } else { "ws" };
+                    let url = format!("{}://{}/ws/matrices", proto, host);
+                    if let Ok(mut ws) = WebSocket::open(&url) {
                         while let Some(msg) = ws.next().await {
                             if let Ok(Message::Text(txt)) = msg {
-                                if let Ok(update) = serde_json::from_str::<Vec<Matrix>>(&txt) {
-                                    matrices.set(update);
+                                if let Ok(data) = serde_json::from_str::<Vec<Matrix>>(&txt) {
+                                    matrices.set(data);
                                 }
                             }
                         }

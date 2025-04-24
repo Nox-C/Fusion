@@ -1,10 +1,3 @@
 pub mod matrix_panel;
 pub mod dashboard;
-pub mod scanning_panel;
-pub mod completed_transactions;
-pub mod wallet_connect;
-pub mod slider_marginal_optimizer;
-pub mod slider_liquidity;
-pub mod profit_transfer;
-pub mod header;
-pub mod footer;
+pub mod ui;

@@ -9,11 +9,60 @@ pub struct ProviderEntry {
     pub name: String,
     pub url: String,
     pub max_requests_per_minute: u32,
-    pub last_used: Option<Instant>,
-    pub cooldown_until: Option<Instant>,
+    pub monthly_limit: Option<u64>, // e.g., 3_000_000 for Infura
+    pub hourly_limit: Option<u64>,  // calculated from monthly_limit
+    pub daily_limit: Option<u64>,   // calculated from monthly_limit
     pub requests_this_window: u32,
     pub window_start: Option<Instant>,
+    pub requests_this_hour: u64,
+    pub hour_start: Option<chrono::DateTime<chrono::Utc>>,
+    pub requests_today: u64,
+    pub day_start: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_used: Option<Instant>,
+    pub cooldown_until: Option<Instant>,
 }
+
+impl ProviderEntry {
+    pub fn enforce_steady_limits(&mut self) -> bool {
+        use chrono::Utc;
+        let now = Utc::now();
+        // Reset hour if needed
+        if let Some(hour_start) = self.hour_start {
+            let elapsed = now.timestamp() - hour_start.timestamp();
+            if elapsed >= 3600 {
+                self.requests_this_hour = 0;
+                self.hour_start = Some(now);
+            }
+        } else {
+            self.hour_start = Some(now);
+            self.requests_this_hour = 0;
+        }
+        // Reset day if needed
+        if let Some(day_start) = self.day_start {
+            if now.date_naive() != day_start.date_naive() {
+                self.requests_today = 0;
+                self.day_start = Some(now);
+            }
+        } else {
+            self.day_start = Some(now);
+            self.requests_today = 0;
+        }
+        // Enforce hourly limit
+        if let Some(hourly) = self.hourly_limit {
+            if self.requests_this_hour >= hourly {
+                return false;
+            }
+        }
+        // Enforce daily limit
+        if let Some(daily) = self.daily_limit {
+            if self.requests_today >= daily {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 
 impl ProviderEntry {
     pub fn is_available(&self) -> bool {
@@ -90,19 +139,33 @@ mod tests {
                     name: "A".into(),
                     url: "urlA".into(),
                     max_requests_per_minute: 2,
-                    last_used: None,
-                    cooldown_until: None,
+                    monthly_limit: Some(0),
+                    hourly_limit: Some(0),
+                    daily_limit: Some(0),
                     requests_this_window: 0,
                     window_start: None,
+                    requests_this_hour: 0,
+                    hour_start: Some(chrono::Utc::now()),
+                    requests_today: 0,
+                    day_start: Some(chrono::Utc::now()),
+                    last_used: None,
+                    cooldown_until: None,
                 },
                 ProviderEntry {
                     name: "B".into(),
                     url: "urlB".into(),
                     max_requests_per_minute: 2,
-                    last_used: None,
-                    cooldown_until: None,
+                    monthly_limit: Some(0),
+                    hourly_limit: Some(0),
+                    daily_limit: Some(0),
                     requests_this_window: 0,
                     window_start: None,
+                    requests_this_hour: 0,
+                    hour_start: Some(chrono::Utc::now()),
+                    requests_today: 0,
+                    day_start: Some(chrono::Utc::now()),
+                    last_used: None,
+                    cooldown_until: None,
                 },
             ],
             Duration::from_secs(60),
@@ -126,6 +189,13 @@ mod tests {
     fn test_provider_failure_and_cooldown() {
         let mut rotation = ProviderRotation::new(
             vec![ProviderEntry {
+    monthly_limit: Some(0),
+    hourly_limit: Some(0),
+    daily_limit: Some(0),
+    requests_this_hour: 0,
+    hour_start: Some(chrono::Utc::now()),
+    requests_today: 0,
+    day_start: Some(chrono::Utc::now()),
                 name: "A".into(),
                 url: "urlA".into(),
                 max_requests_per_minute: 2,

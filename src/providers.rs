@@ -64,6 +64,8 @@ impl ProviderManager {
         // Create wallet from private key
         let wallet = settings
             .private_key
+            .as_ref()
+            .expect("PRIVATE_KEY must be set in environment or config")
             .parse::<LocalWallet>()
             .map_err(|e| ProviderManagerError::WalletError(e.to_string()))?;
 
@@ -97,10 +99,17 @@ impl ProviderManager {
                     name: "BSC-Primary".to_string(),
                     url: settings.bsc_rpc_url.clone(),
                     max_requests_per_minute: 60,
-                    last_used: None,
-                    cooldown_until: None,
+                    monthly_limit: Some(3_000_000), // Example: Infura
+                    hourly_limit: Some(3_000_000 / 30 / 24), // ≈4,166/hour
+                    daily_limit: Some(3_000_000 / 30), // ≈100,000/day
                     requests_this_window: 0,
                     window_start: None,
+                    requests_this_hour: 0,
+                    hour_start: None,
+                    requests_today: 0,
+                    day_start: None,
+                    last_used: None,
+                    cooldown_until: None,
                 },
                 // Add more BSC providers here as needed
             ],
@@ -112,10 +121,17 @@ impl ProviderManager {
                     name: "ETH-Primary".to_string(),
                     url: settings.eth_rpc_url.clone(),
                     max_requests_per_minute: 60,
-                    last_used: None,
-                    cooldown_until: None,
+                    monthly_limit: Some(3_000_000), // Example: Infura
+                    hourly_limit: Some(3_000_000 / 30 / 24), // ≈4,166/hour
+                    daily_limit: Some(3_000_000 / 30), // ≈100,000/day
                     requests_this_window: 0,
                     window_start: None,
+                    requests_this_hour: 0,
+                    hour_start: None,
+                    requests_today: 0,
+                    day_start: None,
+                    last_used: None,
+                    cooldown_until: None,
                 },
                 // Add more ETH providers here as needed
             ],
@@ -161,7 +177,9 @@ impl ProviderManager {
         );
 
         for provider_name in priority {
-            if let Some(rpc_url_str) = get_urls(settings, provider_name) {
+            if let Some(mut rpc_url_str) = get_urls(settings, provider_name) {
+                // Substitute env vars at runtime
+                rpc_url_str = Self::substitute_provider_keys(&rpc_url_str);
                 println!(
                     "  Trying provider: {} at URL: {}",
                     provider_name, rpc_url_str
@@ -209,10 +227,20 @@ impl ProviderManager {
         Err(ProviderManagerError::NoValidProvider) // Return error if no provider worked
     }
 
-    // Add methods later to get specific providers, e.g.:
-    // pub fn get_bsc_provider(&self) -> Option<&ChainProvider> {
-    //     self.bsc_provider.as_ref()
-    // }
+    /// Substitute ${INFURA_API_KEY}, ${ALCHEMY_API_KEY}, ${NODEREAL_API_KEY} in a URL string
+    fn substitute_provider_keys(url: &str) -> String {
+        let mut out = url.to_string();
+        if let Ok(val) = std::env::var("APP_INFURA_API_KEY") {
+            out = out.replace("${INFURA_API_KEY}", &val);
+        }
+        if let Ok(val) = std::env::var("APP_ALCHEMY_API_KEY") {
+            out = out.replace("${ALCHEMY_API_KEY}", &val);
+        }
+        if let Ok(val) = std::env::var("APP_NODEREAL_API_KEY") {
+            out = out.replace("${NODEREAL_API_KEY}", &val);
+        }
+        out
+    }
     pub fn get_wallet(&self) -> &LocalWallet {
         &self.wallet
     }
@@ -243,10 +271,17 @@ mod tests {
                     name: "BSC-1".to_string(),
                     url: "http://bsc1".to_string(),
                     max_requests_per_minute: 2,
-                    last_used: None,
-                    cooldown_until: None,
+                    monthly_limit: Some(0),
+                    hourly_limit: Some(0),
+                    daily_limit: Some(0),
                     requests_this_window: 0,
                     window_start: None,
+                    requests_this_hour: 0,
+                    hour_start: None,
+                    requests_today: 0,
+                    day_start: None,
+                    last_used: None,
+                    cooldown_until: None,
                 }],
                 Duration::from_secs(60),
             )),

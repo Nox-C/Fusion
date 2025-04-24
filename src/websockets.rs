@@ -1,5 +1,6 @@
 use crate::config::Settings;
 use ethers::providers::{Provider, Ws, PubsubClient, StreamExt};
+use crate::websockets_round_robin::{DexWebSocketEntry, DexWebSocketRotation};
 use futures_util::stream::FuturesUnordered;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
@@ -23,13 +24,49 @@ pub struct WebSocketManager {
     settings: Arc<Settings>,
     // Store active connections (Provider<Ws>) and their listener tasks
     connections: HashMap<String, (Arc<Provider<Ws>>, JoinHandle<()>)>,
+    // Add round-robin rotation for each DEX
+    pancakeswap_rotation: DexWebSocketRotation,
+    biswap_rotation: DexWebSocketRotation,
+    mdex_rotation: DexWebSocketRotation,
+    babyswap_rotation: DexWebSocketRotation,
+    apeswap_rotation: DexWebSocketRotation,
+    kokoswap_rotation: DexWebSocketRotation,
+    thena_rotation: DexWebSocketRotation,
+    waultswap_rotation: DexWebSocketRotation,
+    dodo_rotation: DexWebSocketRotation,
+    ellipsis_rotation: DexWebSocketRotation,
 }
 
 impl WebSocketManager {
     pub fn new(settings: Arc<Settings>) -> Self {
+        // Helper to create a single-entry rotation for each DEX (can expand to multiple URLs)
+        let dex_rotation = |name: &str, url: &str| {
+            DexWebSocketRotation::new(
+                vec![DexWebSocketEntry {
+                    name: name.to_string(),
+                    url: url.to_string(),
+                    max_reconnects_per_minute: 60,
+                    last_used: None,
+                    cooldown_until: None,
+                    reconnects_this_window: 0,
+                    window_start: None,
+                }],
+                std::time::Duration::from_secs(60),
+            )
+        };
         Self {
-            settings,
+            settings: settings.clone(),
             connections: HashMap::new(),
+            pancakeswap_rotation: dex_rotation("PancakeSwap", &settings.websocket_pancakeswap),
+            biswap_rotation: dex_rotation("Biswap", &settings.websocket_biswap),
+            mdex_rotation: dex_rotation("MDEX", &settings.websocket_mdex),
+            babyswap_rotation: dex_rotation("BabySwap", &settings.websocket_babyswap),
+            apeswap_rotation: dex_rotation("ApeSwap", &settings.websocket_apeswap),
+            kokoswap_rotation: dex_rotation("KokoSwap", &settings.websocket_kokoswap),
+            thena_rotation: dex_rotation("Thena", &settings.websocket_thena),
+            waultswap_rotation: dex_rotation("WaultSwap", &settings.websocket_waultswap),
+            dodo_rotation: dex_rotation("DODO", &settings.websocket_dodo),
+            ellipsis_rotation: dex_rotation("Ellipsis", &settings.websocket_ellipsis),
         }
     }
 
@@ -54,16 +91,16 @@ impl WebSocketManager {
 
         // --- DEX Specific WebSockets ---
         // Create a helper function or macro to reduce repetition if desired
-        self.add_dex_ws_future(&mut futures, "PancakeSwap", &self.settings.websocket_pancakeswap);
-        self.add_dex_ws_future(&mut futures, "Biswap", &self.settings.websocket_biswap);
-        self.add_dex_ws_future(&mut futures, "MDEX", &self.settings.websocket_mdex);
-        self.add_dex_ws_future(&mut futures, "BabySwap", &self.settings.websocket_babyswap);
-        self.add_dex_ws_future(&mut futures, "ApeSwap", &self.settings.websocket_apeswap);
-        self.add_dex_ws_future(&mut futures, "KokoSwap", &self.settings.websocket_kokoswap);
-        self.add_dex_ws_future(&mut futures, "Thena", &self.settings.websocket_thena);
-        self.add_dex_ws_future(&mut futures, "WaultSwap", &self.settings.websocket_waultswap);
-        self.add_dex_ws_future(&mut futures, "DODO", &self.settings.websocket_dodo);
-        self.add_dex_ws_future(&mut futures, "Ellipsis", &self.settings.websocket_ellipsis);
+        self.add_dex_ws_future(&mut futures, "PancakeSwap");
+        self.add_dex_ws_future(&mut futures, "Biswap");
+        self.add_dex_ws_future(&mut futures, "MDEX");
+        self.add_dex_ws_future(&mut futures, "BabySwap");
+        self.add_dex_ws_future(&mut futures, "ApeSwap");
+        self.add_dex_ws_future(&mut futures, "KokoSwap");
+        self.add_dex_ws_future(&mut futures, "Thena");
+        self.add_dex_ws_future(&mut futures, "WaultSwap");
+        self.add_dex_ws_future(&mut futures, "DODO");
+        self.add_dex_ws_future(&mut futures, "Ellipsis");
 
         log::warn!("Attempting to establish all WebSocket connections...");
 
@@ -85,16 +122,32 @@ impl WebSocketManager {
 
     // Helper to add DEX WebSocket connection future
     fn add_dex_ws_future<'a>(
-        &self,
+        &mut self,
         futures: &'a mut FuturesUnordered<impl futures_util::Future<Output = Result<(String, Arc<Provider<Ws>>, JoinHandle<()>) , WebSocketError>> + Unpin>,
         name: &str,
-        url_str: &str
     ) {
-        if url_str.is_empty() {
-             log::warn!("Warning: Skipping DEX WebSocket for {} due to empty URL.", name);
-            return;
+        let rotation = match name {
+            "PancakeSwap" => &mut self.pancakeswap_rotation,
+            "Biswap" => &mut self.biswap_rotation,
+            "MDEX" => &mut self.mdex_rotation,
+            "BabySwap" => &mut self.babyswap_rotation,
+            "ApeSwap" => &mut self.apeswap_rotation,
+            "KokoSwap" => &mut self.kokoswap_rotation,
+            "Thena" => &mut self.thena_rotation,
+            "WaultSwap" => &mut self.waultswap_rotation,
+            "DODO" => &mut self.dodo_rotation,
+            "Ellipsis" => &mut self.ellipsis_rotation,
+            _ => return,
+        };
+        if let Some(entry) = rotation.next_endpoint() {
+            if entry.url.is_empty() {
+                log::warn!("Warning: Skipping DEX WebSocket for {} due to empty URL.", name);
+                return;
+            }
+            futures.push(Self::connect_and_listen(name.to_string(), entry.url.clone()));
+        } else {
+            log::warn!("No available endpoint for {} (all on cooldown or exhausted)", name);
         }
-        futures.push(Self::connect_and_listen(name.to_string(), url_str.to_string()));
     }
 
 

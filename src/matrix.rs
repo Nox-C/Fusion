@@ -57,30 +57,53 @@ pub struct MatrixManager {
 }
 
 impl MatrixManager {
-    /// Create a new MatrixManager with a default ETH matrix. In production, matrices should be loaded from config or blockchain.
-    pub fn new() -> Self {
-        // Initialize with a default ETH matrix so manager.all() is not empty
-        let mut initial_matrices = Vec::new();
-        initial_matrices.push(Matrix {
+    /// Create a new MatrixManager with ETH and BSC matrices pre-configured from settings.
+    pub fn with_settings(settings: &Settings) -> Self {
+        let mut matrices = Vec::new();
+        // ETH matrix (placeholder for future use)
+        matrices.push(Matrix {
             id: "ETH".to_string(),
             name: "ETH Matrix".to_string(),
             chain: "ETH".to_string(),
-            marginal_optimizer: 0.0,
+            marginal_optimizer: settings.marginal_optimizer,
             dex_prices: HashMap::new(),
             opportunities: Vec::new(),
             recent_transactions: Vec::new(),
             status: "Active".to_string(),
         });
-        Self {
-            matrices: Arc::new(Mutex::new(initial_matrices)),
+        // BSC matrix configured with all DEXes
+        let mut bsc_matrix = Matrix {
+            id: "BSC".to_string(),
+            name: "BSC Matrix".to_string(),
+            chain: "BSC".to_string(),
+            marginal_optimizer: settings.marginal_optimizer,
+            dex_prices: HashMap::new(),
+            opportunities: Vec::new(),
+            recent_transactions: Vec::new(),
+            status: "Active".to_string(),
+        };
+        for dex in &settings.dexes {
+            bsc_matrix.dex_prices.insert(
+                dex.clone(),
+                DexPrice { dex: dex.clone(), price: 0.0, timestamp: 0 },
+            );
         }
+        matrices.push(bsc_matrix);
+        Self { matrices: Arc::new(Mutex::new(matrices)) }
     }
-    // Add a method to load matrices from config or blockchain as needed.
 }
 
 impl Default for MatrixManager {
     fn default() -> Self {
-        Self::new()
+        Self::with_settings(&Settings::default())
+    }
+}
+
+// Add `new` alias to default constructor for tests
+impl MatrixManager {
+    /// Construct a new MatrixManager using default settings
+    pub fn new() -> Self {
+        MatrixManager::default()
     }
 }
 
@@ -114,7 +137,10 @@ impl MatrixManager {
         settings: &Settings,
         client: Arc<M>,
     ) -> Vec<ArbitrageOpportunity> {
-        let matrices = self.matrices.lock().unwrap();
-        AnalysisHub::scan_all(&matrices, settings, client).await
+        let matrices_vec = {
+            let matrices = self.matrices.lock().unwrap();
+            matrices.clone()
+        };
+        AnalysisHub::scan_all(&matrices_vec, settings, client).await
     }
 }

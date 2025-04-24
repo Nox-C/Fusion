@@ -15,10 +15,7 @@ async fn test_ws_echo() {
     // Start the server in a background task
     let srv = actix_rt::spawn(async move {
         actix_web::HttpServer::new(|| {
-            App::new().route(
-                "/ws/matrices",
-                actix_web::web::get().to(fusion::api::ws_matrices_handler),
-            )
+            App::new().service(fusion::api::ws_matrices_handler)
         })
         .listen(listener)
         .expect("Failed to listen")
