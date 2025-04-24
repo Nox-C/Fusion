@@ -21,7 +21,8 @@ pub struct Settings {
     pub provider_priority_order: Vec<String>,
 
     // --- Infura ---
-    pub infura_api_key: String,
+    /// Infura API key (must be set via environment variable in production)
+    pub infura_api_key: Option<String>,
     pub rpc_url: String,
     pub bsc_rpc_url: String,
     pub bsc_testnet_rpc_url: String,
@@ -32,7 +33,8 @@ pub struct Settings {
     pub infura_bsc_websocket_url: String,
 
     // --- Alchemy ---
-    pub alchemy_api_key: String,
+    /// Alchemy API key (must be set via environment variable in production)
+    pub alchemy_api_key: Option<String>,
     pub alchemy_bsc_rpc_url: String,
     pub alchemy_eth_rpc_url: String,
     pub alchemy_bsc_testnet_rpc_url: String,
@@ -43,7 +45,8 @@ pub struct Settings {
     pub alchemy_bsc_testnet_websocket_url: String,
 
     // --- NodeReal ---
-    pub nodereal_api_key: String,
+    /// NodeReal API key (must be set via environment variable in production)
+    pub nodereal_api_key: Option<String>,
     pub nodereal_bsc_rpc_url: String,
     pub nodereal_eth_rpc_url: String,
     pub nodereal_bsc_testnet_rpc_url: String,
@@ -74,8 +77,10 @@ pub struct Settings {
     pub clock_drift_correction: bool,
 
     // --- Deployment Keys ---
-    pub private_key: String,
-    pub profit_wallet: String,
+    /// Private key for deployment (must be set via environment variable in production)
+    pub private_key: Option<String>,
+    /// Profit wallet address (must be set via environment variable in production)
+    pub profit_wallet: Option<String>,
 
     // --- Liquidity & Flash Loan Optimization ---
     pub liquidity_usage_percentage: f64,
