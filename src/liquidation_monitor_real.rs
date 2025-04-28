@@ -456,21 +456,7 @@ impl ProtocolHelper for CompoundHelper {
                                     log::error!("[CompoundHelper] Error getting liquidity");
                                 }
                             }
-                            let debt: U256 = ctoken_contract.method("borrowBalanceStored", account).unwrap().call().await.unwrap();
-                            let supply: U256 = ctoken_contract.method("balanceOfUnderlying", account).unwrap().call().await.unwrap();
-                            let underlying_addr: Address = ctoken_contract.method::<_, Address>("underlying", ()).unwrap().call().await.unwrap();
-                            let price: U256 = oracle.method("getUnderlyingPrice", ctoken).unwrap().call().await.unwrap();
-                            // Compound price is scaled by 1e18, debt/supply by token decimals
-                            let debt_usd = debt.as_u128() as f64 * price.as_u128() as f64 / 1e36;
-                            let supply_usd = supply.as_u128() as f64 * price.as_u128() as f64 / 1e36;
-                            total_debt_usd += debt_usd;
-                            total_collateral_usd += supply_usd;
                         }
-                        let event = LiquidationEvent {
-                            protocol: "Compound".to_string(),
-                            account: format!("0x{:x}", account),
-                            debt: total_debt_usd,
-                            collateral: total_collateral_usd,
                         };
                         if let Err(e) = sender.send(event).await {
                             log::error!("[CompoundHelper] Failed to send liquidation event: {}", e);
