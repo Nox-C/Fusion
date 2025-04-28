@@ -106,7 +106,7 @@ impl ProtocolHelper for VenusHelper {
             };
             let provider = ethers::providers::Provider::try_from("http://localhost:8545").unwrap();
             let client = provider.clone();
-            let contract = Contract::new(venus_comptroller, abi, client);
+            let contract = Contract::new(venus_comptroller, abi, std::sync::Arc::new(client));
             loop {
                 match contract.method::<(), Vec<Address>>("getAllMarkets", ()).unwrap().call().await {
                     Ok(accounts) => {
@@ -139,7 +139,7 @@ impl ProtocolHelper for VenusHelper {
                                                         continue;
                                                     }
                                                 };
-                                                let oracle = Contract::new(price_oracle_addr, price_oracle_abi, provider.clone());
+                                                let oracle = Contract::new(price_oracle_addr, price_oracle_abi, std::sync::Arc::new(provider.clone()));
                                                 let ctoken_abi: Abi = match std::fs::File::open("src/abi/VenusCToken.json") {
                                                     Ok(f) => match serde_json::from_reader(f) {
                                                         Ok(a) => a,
@@ -154,7 +154,7 @@ impl ProtocolHelper for VenusHelper {
                                                     }
                                                 };
                                                 for ctoken in assets {
-                                                    let ctoken_contract = Contract::new(ctoken, ctoken_abi.clone(), provider.clone());
+                                                    let ctoken_contract = Contract::new(ctoken, ctoken_abi.clone(), std::sync::Arc::new(provider.clone()));
                                                     match ctoken_contract.method("borrowBalanceStored", account).unwrap().call().await {
                                                         Ok(debt) => {
                                                             match ctoken_contract.method("balanceOfUnderlying", account).unwrap().call().await {
@@ -267,7 +267,7 @@ impl ProtocolHelper for AaveHelper {
             };
             let provider = ethers::providers::Provider::try_from("http://localhost:8545").unwrap();
             let client = provider.clone();
-            let contract = Contract::new(aave_lending_pool, abi, client);
+            let contract = Contract::new(aave_lending_pool, abi, std::sync::Arc::new(client));
             loop {
                 match contract.method::<(), Vec<Address>>("getUsers", ()).unwrap().call().await {
                     Ok(accounts) => {
@@ -299,7 +299,7 @@ impl ProtocolHelper for AaveHelper {
                                                 continue;
                                             }
                                         };
-                                        let oracle = Contract::new(price_oracle_addr, price_oracle_abi, provider.clone());
+                                        let oracle = Contract::new(price_oracle_addr, price_oracle_abi, std::sync::Arc::new(provider.clone()));
                                         match oracle.method("getAssetPrice", "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE").unwrap().call().await {
                                             Ok(eth_usd) => {
                                                 let collateral_usd = total_collateral_eth.as_u128() as f64 * eth_usd.as_u128() as f64 / 1e36;
@@ -382,7 +382,7 @@ impl ProtocolHelper for CompoundHelper {
             };
             let provider = ethers::providers::Provider::try_from("http://localhost:8545").unwrap();
             let client = provider.clone();
-            let contract = Contract::new(compound_comptroller, abi, client);
+            let contract = Contract::new(compound_comptroller, abi, std::sync::Arc::new(client));
             loop {
                 match contract.method::<(), Vec<Address>>("getAllMarkets", ()).unwrap().call().await {
                     Ok(accounts) => {
@@ -394,12 +394,12 @@ impl ProtocolHelper for CompoundHelper {
                                         let mut total_collateral_usd = 0.0;
                                         let price_oracle_addr: Address = std::env::var("COMPOUND_PRICE_ORACLE").expect("COMPOUND_PRICE_ORACLE env var required").parse().unwrap();
                                         let price_oracle_abi: Abi = serde_json::from_reader(std::fs::File::open("abi/CompoundPriceOracle.json").unwrap()).unwrap();
-                                        let oracle = Contract::new(price_oracle_addr, price_oracle_abi, provider.clone());
+                                        let oracle = Contract::new(price_oracle_addr, price_oracle_abi, std::sync::Arc::new(provider.clone()));
                                         let ctoken_abi: Abi = serde_json::from_reader(std::fs::File::open("abi/CompoundCToken.json").unwrap()).unwrap();
                                         match contract.method::<Address, Vec<Address>>("getAssetsIn", account).unwrap().call().await {
                                             Ok(assets) => {
                                                 for ctoken in assets {
-                                                    let ctoken_contract = Contract::new(ctoken, ctoken_abi.clone(), provider.clone());
+                                                    let ctoken_contract = Contract::new(ctoken, ctoken_abi.clone(), std::sync::Arc::new(provider.clone()));
                                                     match ctoken_contract.method("borrowBalanceStored", account).unwrap().call().await {
                                                         Ok(debt) => {
                                                             match ctoken_contract.method("balanceOfUnderlying", account).unwrap().call().await {
