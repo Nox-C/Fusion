@@ -1,6 +1,8 @@
-use std::sync::{Arc, Mutex};
+
 use tokio::sync::mpsc;
 use async_trait::async_trait;
+use ethers::abi::Abi;
+use crate::execute_arbitrage::execute_arbitrage_onchain;
 use crate::liquidation_monitor::{LiquidationEvent, LiquidationExecutor, ProtocolHelper};
 use crate::arbitrage_executor_address::ARBITRAGE_EXECUTOR_MAINNET;
 
@@ -300,7 +302,7 @@ impl ProtocolHelper for AaveHelper {
                                             }
                                         };
                                         let oracle = Contract::new(price_oracle_addr, price_oracle_abi, std::sync::Arc::new(provider.clone()));
-                                        match oracle.method("getAssetPrice", "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE").unwrap().call().await {
+                                        match oracle.method("getAssetPrice", String::from("0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE")).unwrap().call().await {
                                             Ok(eth_usd) => {
                                                 let collateral_usd = total_collateral_eth.as_u128() as f64 * eth_usd.as_u128() as f64 / 1e36;
                                                 let debt_usd = total_debt_eth.as_u128() as f64 * eth_usd.as_u128() as f64 / 1e36;
