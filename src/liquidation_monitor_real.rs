@@ -457,10 +457,6 @@ impl ProtocolHelper for CompoundHelper {
                                 }
                             }
                         }
-                        };
-                        if let Err(e) = sender.send(event).await {
-                            log::error!("[CompoundHelper] Failed to send liquidation event: {}", e);
-                        }
                     }
                 }
                 tokio::time::sleep(Duration::from_secs(15)).await;
