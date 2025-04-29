@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background: linear-gradient(135deg, #0f172a 60%, #00ffe7 100%);
+  min-height: 100vh;
+  font-family: 'Orbitron', sans-serif;
+}
+
+.fusion-orb {
+  box-shadow: 0 0 40px #00fff7, 0 0 80px #00ffe7;
+  background: radial-gradient(circle at 60% 40%, #b8c6db 60%, #00fff7 100%);
+  border-radius: 50%;
+  transition: box-shadow 0.3s, background 0.3s;
+}
+
+.fusion-orb-face {
+  /* Placeholder for face morphing animation */
+}
+
+.fusion-glass {
+  background: rgba(255,255,255,0.07);
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+  backdrop-filter: blur(6px);
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.18);
+}
