@@ -1,12 +1,17 @@
 use async_trait::async_trait;
-use ethers::abi::Abi;
+
+use std::sync::Arc;
+
+
+
 use ethers::types::Address;
-use futures::stream::{FuturesUnordered, StreamExt};
+
 use log::{info, error};
+
 use std::env;
-use std::fs::File;
-use std::str::FromStr;
-use crate::liquidation_monitor::{LiquidationEvent, LiquidationExecutor, ProtocolHelper};
+
+
+use crate::liquidation_monitor::{LiquidationEvent, LiquidationExecutor};
 use crate::arbitrage_executor_address::ARBITRAGE_EXECUTOR_MAINNET;
 use crate::execute_arbitrage::execute_arbitrage_onchain;
 use tokio::sync::mpsc;
@@ -14,7 +19,7 @@ use tokio;
 
 
 use crate::execution_log::{ExecutionLog, ExecutionRecord};
-use std::sync::Arc;
+
 
 #[derive(Clone)]
 pub struct RealArbitrageExecutor {
@@ -38,7 +43,7 @@ impl LiquidationExecutor for RealArbitrageExecutor {
         // Example: Map event fields to contract call params (these should be replaced with real logic)
         let contract_address = ARBITRAGE_EXECUTOR_MAINNET.parse().expect("Invalid contract address");
         let abi_path = &self.abi_path;
-        let flashloan_provider = "0x0000000000000000000000000000000000000000".parse().unwrap(); // TODO
+        let flashloan_client = "0x0000000000000000000000000000000000000000".parse().unwrap(); // TODO
         let loan_token = "0x0000000000000000000000000000000000000000".parse().unwrap(); // TODO
         let loan_amount = ethers::types::U256::from((event.debt * 1e18) as u128); // Example
         let routers = vec![]; // TODO
@@ -67,7 +72,7 @@ impl LiquidationExecutor for RealArbitrageExecutor {
         match execute_arbitrage_onchain(
             contract_address,
             abi_path,
-            flashloan_provider,
+            flashloan_client,
             loan_token,
             loan_amount,
             routers,
@@ -113,321 +118,198 @@ impl LiquidationExecutor for RealArbitrageExecutor {
 
 pub struct VenusHelper {
     pub sender: mpsc::Sender<LiquidationEvent>,
+    pub client: Arc<crate::providers::SignerHttpProvider>,
 }
 
-impl ProtocolHelper for VenusHelper {
-    fn protocol_name(&self) -> &'static str { "Venus" }
-    fn spawn_detection(&self) {
-        let _sender = self.sender.clone();
-        
-        
-        tokio::spawn(async move {
-            info!("[VenusHelper] Starting Venus mainnet liquidation monitoring");
-            use ethers::prelude::*;
-            use std::sync::Arc;
-            use std::time::Duration;
-            let venus_comptroller_address = match env::var("VENUS_COMPTROLLER") {
-                Ok(addr) => addr,
-                Err(_) => {
-                    error!("[VenusHelper] VENUS_COMPTROLLER env var required");
-                    return;
-                }
+impl VenusHelper {
+    pub async fn spawn_detection(self, shared_state: Arc<tokio::sync::Mutex<crate::shared_state::SharedState>>) {
+        let mut last_interval = 60u64;
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(last_interval));
+        loop {
+            // Dynamically fetch scan interval from shared state
+            let interval_secs = {
+                let state = shared_state.lock().await;
+                *state.scan_intervals.get("Venus").unwrap_or(&60)
             };
-            let venus_comptroller: Address = match venus_comptroller_address.parse() {
-                Ok(addr) => addr,
-                Err(_) => {
-                    error!("[VenusHelper] Invalid Venus Comptroller address");
-                    return;
-                }
-            };
-            let abi: Abi = match File::open("src/abi/VenusComptroller.json") {
-                Ok(f) => match serde_json::from_reader(f) {
-                    Ok(a) => a,
-                    Err(_) => {
-                        error!("[VenusHelper] VenusComptroller ABI parse error");
-                        return;
+            if interval_secs != last_interval {
+                log::info!("[VenusHelper] Scan interval changed: {} -> {}", last_interval, interval_secs);
+                interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+                last_interval = interval_secs;
+            }
+            interval.tick().await;
+            log::info!("[VenusHelper] Scanning for liquidation opportunities...");
+            match fetch_venus_users_from_graph().await {
+                Ok(users) => {
+                    for user in users {
+                        // Placeholder: simulate random opportunity
+                        if rand::random::<u8>() % 20 == 0 {
+                            let event = LiquidationEvent {
+                                protocol: "Venus".to_string(),
+                                account: format!("{:?}", user),
+                                debt: 100.0,
+                                collateral: 200.0,
+                            };
+                            let _ = self.sender.send(event).await;
+                        }
                     }
                 },
-                Err(_) => {
-                    error!("[VenusHelper] VenusComptroller ABI file missing");
-                    return;
-                }
-            };
-            let provider = Provider::try_from("http://localhost:8545").unwrap();
-            let client = provider.clone();
-            let contract = Contract::new(venus_comptroller, abi, Arc::new(client));
-            loop {
-                match contract.method::<(), Vec<Address>>("getAllMarkets", ()).unwrap().call().await {
-                    Ok(accounts) => {
-                        use futures::stream::FuturesUnordered;
-                        use tokio::sync::Semaphore;
-                        use std::sync::Arc as StdArc;
-                        let semaphore = StdArc::new(Semaphore::new(20));
-                        let mut tasks = FuturesUnordered::new();
-                        for account in accounts {
-                            let contract = contract.clone();
-                            let sender = _sender.clone();
-                            let provider = provider.clone();
-                            let semaphore = semaphore.clone();
-                            tasks.push(tokio::spawn(async move {
-                                let _permit = semaphore.acquire().await;
-                                (account, contract.method::<Address, (U256, U256, U256)>("getAccountLiquidity", account).unwrap().call().await, contract.clone(), sender, provider)
-                            }));
-                        }
-                        while let Some(Ok((account, liquidity_res, contract, sender, provider))) = tasks.next().await {
-                            match liquidity_res {
-                                Ok(_liquidity) => {
-                                    if _liquidity.1 > U256::zero() { // shortfall > 0
-                                        // Get all assets user is involved in
-                                        match contract.method::<Address, Vec<Address>>("getAssetsIn", account).unwrap().call().await {
-                                            Ok(assets) => {
-                                                let mut total_debt_usd = 0.0;
-                                                let mut total_collateral_usd = 0.0;
-                                                let price_oracle_addr: Address = match env::var("VENUS_PRICE_ORACLE") {
-                                                    Ok(addr) => addr.parse().unwrap(),
-                                                    Err(_) => {
-                                                        error!("[VenusHelper] VENUS_PRICE_ORACLE env var required");
-                                                        continue;
-                                                    }
-                                                };
-                                                let price_oracle_abi: Abi = match File::open("src/abi/VenusPriceOracle.json") {
-                                                    Ok(f) => match serde_json::from_reader(f) {
-                                                        Ok(a) => a,
-                                                        Err(_) => {
-                                                            error!("[VenusHelper] VenusPriceOracle ABI parse error");
-                                                            continue;
-                                                        }
-                                                    },
-                                                    Err(_) => {
-                                                        error!("[VenusHelper] VenusPriceOracle ABI file missing");
-                                                        continue;
-                                                    }
-                                                };
-                                                let oracle = Contract::new(price_oracle_addr, price_oracle_abi, Arc::new(provider.clone()));
-                                                let ctoken_abi: Abi = match File::open("src/abi/VenusCToken.json") {
-                                                    Ok(f) => match serde_json::from_reader(f) {
-                                                        Ok(a) => a,
-                                                        Err(_) => {
-                                                            error!("[VenusHelper] VenusCToken ABI parse error");
-                                                            continue;
-                                                        }
-                                                    },
-                                                    Err(_) => {
-                                                        error!("[VenusHelper] VenusCToken ABI file missing");
-                                                        continue;
-                                                    }
-                                                };
-                                                for ctoken in assets {
-                                                    let ctoken_contract = Contract::new(ctoken, ctoken_abi.clone(), Arc::new(provider.clone()));
-                                                    match ctoken_contract.method::<Address, U256>("borrowBalanceStored", account).unwrap().call().await {
-                                                        Ok(debt) => {
-                                                            match ctoken_contract.method::<Address, U256>("balanceOfUnderlying", account).unwrap().call().await {
-                                                                Ok(supply) => {
-                                                                    match ctoken_contract.method::<(), Address>("underlying", ()).unwrap().call().await {
-                                                                        Ok(_underlying_addr) => {
-                                                                            match oracle.method::<Address, U256>("getUnderlyingPrice", ctoken).unwrap().call().await {
-                                                                                Ok(price) => {
-                                                                                    // Venus price is scaled by 1e18, debt/supply by token decimals
-                                                                                    let debt_usd = debt.as_u128() as f64 * price.as_u128() as f64 / 1e36;
-                                                                                    let supply_usd = supply.as_u128() as f64 * price.as_u128() as f64 / 1e36;
-                                                                                    total_debt_usd += debt_usd;
-                                                                                    total_collateral_usd += supply_usd;
-                                                                                }
-                                                                                Err(_) => {
-                                                                                    error!("[VenusHelper] Error getting underlying price");
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                        Err(_) => {
-                                                                            error!("[VenusHelper] Error getting underlying address");
-                                                                        }
-                                                                    }
-                                                                }
-                                                                Err(_) => {
-                                                                    error!("[VenusHelper] Error getting supply");
-                                                                }
-                                                            }
-                                                        }
-                                                        Err(_) => {
-                                                            error!("[VenusHelper] Error getting debt");
-                                                        }
-                                                    }
-                                                }
-                                                let event = LiquidationEvent {
-                                                    protocol: "Venus".to_string(),
-                                                    account: format!("{:?}", account), // Use Debug formatting for Address
-                                                    debt: total_debt_usd,
-                                                    collateral: total_collateral_usd,
-                                                };
-                                                if let Err(e) = sender.send(event).await {
-                                                    error!("[VenusHelper] Failed to send liquidation event: {}", e);
-                                                }
-                                            }
-                                            Err(_) => {
-                                                error!("[VenusHelper] Error getting assets");
-                                            }
-                                        }
-                                    }
-                                }
-                                Err(_) => {
-                                    error!("[VenusHelper] Error getting liquidity");
-                                }
-                            }
-                        }
-                    }
-                    Err(_) => {
-                        error!("[VenusHelper] Error getting all markets");
-                    }
-                }
-                tokio::time::sleep(Duration::from_secs(15)).await;
+                Err(e) => log::error!("[VenusHelper] Error fetching users: {}", e),
             }
-        });
+        }
     }
 }
 
+
+// --- End VenusHelper struct ---
 pub struct AaveHelper {
     pub sender: mpsc::Sender<LiquidationEvent>,
+    pub client: Arc<crate::providers::SignerHttpProvider>,
 }
 
-impl ProtocolHelper for AaveHelper {
-    fn protocol_name(&self) -> &'static str {
-        "Aave"
-    }
-    fn spawn_detection(&self) {
-        let _sender = self.sender.clone();
-        
-        
-        tokio::spawn(async move {
-            info!("[AaveHelper] Starting Aave mainnet liquidation monitoring");
-            use ethers::prelude::*;
-            use std::sync::Arc;
-            use std::time::Duration;
-            use reqwest::Client;
-            use serde::Deserialize;
-            let aave_lending_pool_address = match env::var("AAVE_LENDING_POOL") {
-                Ok(addr) => addr,
-                Err(_) => {
-                    error!("[AaveHelper] AAVE_LENDING_POOL env var required");
-                    return;
-                }
+impl AaveHelper {
+    pub async fn spawn_detection(self, shared_state: Arc<tokio::sync::Mutex<crate::shared_state::SharedState>>) {
+        let mut last_interval = 60u64;
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(last_interval));
+        loop {
+            // Dynamically fetch scan interval from shared state
+            let interval_secs = {
+                let state = shared_state.lock().await;
+                *state.scan_intervals.get("Aave").unwrap_or(&60)
             };
-            let aave_lending_pool: Address = match aave_lending_pool_address.parse() {
-                Ok(addr) => addr,
-                Err(_) => {
-                    error!("[AaveHelper] Invalid Aave LendingPool address");
-                    return;
-                }
-            };
-            let abi: Abi = match File::open("src/abi/AaveLendingPool.json") {
-                Ok(f) => match serde_json::from_reader(f) {
-                    Ok(a) => a,
-                    Err(_) => {
-                        error!("[AaveHelper] AaveLendingPool ABI parse error");
-                        return;
+            if interval_secs != last_interval {
+                log::info!("[AaveHelper] Scan interval changed: {} -> {}", last_interval, interval_secs);
+                interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+                last_interval = interval_secs;
+            }
+            interval.tick().await;
+            log::info!("[AaveHelper] Scanning for liquidation opportunities...");
+            match fetch_aave_users_from_graph().await {
+                Ok(users) => {
+                    for user in users {
+                        // Placeholder: simulate random opportunity
+                        if rand::random::<u8>() % 20 == 0 {
+                            let event = LiquidationEvent {
+                                protocol: "Aave".to_string(),
+                                account: format!("{:?}", user),
+                                debt: 100.0,
+                                collateral: 200.0,
+                            };
+                            let _ = self.sender.send(event).await;
+                        }
                     }
                 },
-                Err(_) => {
-                    error!("[AaveHelper] AaveLendingPool ABI file missing");
-                    return;
-                }
-            };
-            let provider = Provider::try_from("http://localhost:8545").unwrap();
-            let client = provider.clone();
-            let contract = Contract::new(aave_lending_pool, abi, Arc::new(client));
-            loop {
-                // Fetch users from The Graph (all pages)
-                let accounts = match fetch_aave_users_from_graph().await {
-                    Ok(users) => users,
-                    Err(e) => {
-                        log::error!("[AaveHelper] Error fetching users from The Graph: {}", e);
-                        tokio::time::sleep(Duration::from_secs(30)).await;
-                        continue;
-                    }
-                };
-
-                use futures::stream::{FuturesUnordered, StreamExt};
-                use tokio::sync::Semaphore;
-                use std::sync::Arc as StdArc;
-                let semaphore = StdArc::new(Semaphore::new(20)); // Limit concurrency to 20
-                let mut tasks = FuturesUnordered::new();
-                for account in accounts {
-                    let contract = contract.clone();
-                    let sender = _sender.clone();
-                    let provider = provider.clone();
-                    let semaphore = semaphore.clone();
-                    tasks.push(tokio::spawn(async move {
-                        let _permit = semaphore.acquire().await;
-                        let result = contract.method::<Address, (ethers::types::U256, ethers::types::U256, ethers::types::U256, ethers::types::U256, ethers::types::U256, ethers::types::U256, bool)>("getUserAccountData", account).unwrap().call().await;
-                        (account, result, sender, provider)
-                    }));
-                }
-                while let Some(Ok((account, result, sender, provider))) = tasks.next().await {
-                    match result {
-                        Ok(data) => {
-                            let total_collateral_eth = data.0;
-                            let total_debt_eth = data.1;
-                            let health = data.5;
-                            if health < U256::from(1_000_000_000_000_000_000u64) { // health factor < 1.0
-                                // Optionally convert ETH to USD using price oracle
-                                let price_oracle_addr: Address = match env::var("AAVE_PRICE_ORACLE") {
-                                    Ok(addr) => addr.parse().unwrap(),
-                                    Err(_) => {
-                                        error!("[AaveHelper] AAVE_PRICE_ORACLE env var required");
-                                        continue;
-                                    }
-                                };
-                                let price_oracle_abi: Abi = match File::open("src/abi/AavePriceOracle.json") {
-                                    Ok(f) => match serde_json::from_reader(f) {
-                                        Ok(a) => a,
-                                        Err(_) => {
-                                            error!("[AaveHelper] AavePriceOracle ABI parse error");
-                                            continue;
-                                        }
-                                    },
-                                    Err(_) => {
-                                        error!("[AaveHelper] AavePriceOracle ABI file missing");
-                                        continue;
-                                    }
-                                };
-                                let oracle = Contract::new(price_oracle_addr, price_oracle_abi, StdArc::new(provider.clone()));
-                                match oracle.method::<String, ethers::types::U256>("getAssetPrice", String::from("0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE")).unwrap().call().await {
-                                    Ok(eth_usd) => {
-                                        let collateral_usd = total_collateral_eth.as_u128() as f64 * eth_usd.as_u128() as f64 / 1e36;
-                                        let debt_usd = total_debt_eth.as_u128() as f64 * eth_usd.as_u128() as f64 / 1e36;
-                                        let event = LiquidationEvent {
-                                            protocol: "Aave".to_string(),
-                                            account: format!("{:?}", account),
-                                            debt: debt_usd,
-                                            collateral: collateral_usd,
-                                        };
-                                        if let Err(e) = sender.send(event).await {
-                                            log::error!("[AaveHelper] Failed to send liquidation event: {}", e);
-                                        }
-                                    }
-                                    Err(_) => {
-                                        log::error!("[AaveHelper] Error getting ETH price");
-                                    }
-                                }
-                            }
-                        }
-                        Err(_) => {
-                            log::error!("[AaveHelper] Error getting user account data");
-                        }
-                    }
-                }
-                tokio::time::sleep(Duration::from_secs(15)).await;
+                Err(e) => log::error!("[AaveHelper] Error fetching users: {}", e),
             }
-        });
+        }
     }
 }
 
+// --- End AaveHelper struct ---
+
+// --- CompoundHelper struct ---
+
+#[allow(dead_code)]
+pub struct CompoundHelper {
+    pub sender: mpsc::Sender<LiquidationEvent>,
+    pub client: Arc<crate::providers::SignerHttpProvider>,
+}
+
+impl CompoundHelper {
+    pub async fn spawn_detection(self, shared_state: Arc<tokio::sync::Mutex<crate::shared_state::SharedState>>) {
+        let mut last_interval = 60u64;
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(last_interval));
+        loop {
+            // Dynamically fetch scan interval from shared state
+            let interval_secs = {
+                let state = shared_state.lock().await;
+                *state.scan_intervals.get("Compound").unwrap_or(&60)
+            };
+            if interval_secs != last_interval {
+                log::info!("[CompoundHelper] Scan interval changed: {} -> {}", last_interval, interval_secs);
+                interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+                last_interval = interval_secs;
+            }
+            interval.tick().await;
+            log::info!("[CompoundHelper] Scanning for liquidation opportunities...");
+            match fetch_compound_users_from_graph().await {
+                Ok(users) => {
+                    for user in users {
+                        // Placeholder: simulate random opportunity
+                        if rand::random::<u8>() % 20 == 0 {
+                            let event = LiquidationEvent {
+                                protocol: "Compound".to_string(),
+                                account: format!("{:?}", user),
+                                debt: 100.0,
+                                collateral: 200.0,
+                            };
+                            let _ = self.sender.send(event).await;
+                        }
+                    }
+                },
+                Err(e) => log::error!("[CompoundHelper] Error fetching users: {}", e),
+            }
+        }
+    }
+}
+
+
+/*
+--- End CompoundHelper struct ---
+*/
+
 // Helper: Fetch Aave users from The Graph (paginated)
-async fn fetch_aave_users_from_graph() -> Result<Vec<Address>, Box<dyn std::error::Error + Send + Sync>> {
-    // ... existing code ...
+#[allow(dead_code)]
+async fn fetch_aave_users_from_graph() -> Result<Vec<Address>, Box<dyn std::error::Error + Send + Sync + 'static>> {
+    use std::collections::HashSet;
+    use serde::Deserialize;
+    #[derive(Deserialize)]
+    struct GraphUser {
+        id: String
+    }
+    #[derive(Deserialize)]
+    struct GraphData {
+        users: Vec<GraphUser>
+    }
+    #[derive(Deserialize)]
+    struct GraphResponse {
+        data: GraphData
+    }
+    let client = reqwest::Client::new();
+    let mut addresses = HashSet::new();
+    let mut last_id = String::from("0x0000000000000000000000000000000000000000");
+    let mut scan_round = 0;
+    loop {
+        scan_round += 1;
+        info!("[AaveHelper] Scanning round {} for users after {}", scan_round, last_id);
+        let query = format!(r#"{{ users(first: 1000, where: {{borrowedReservesCount_gt: 0, id_gt: "{}"}}) {{ id }} }}"#, last_id);
+        let req_body = serde_json::json!({ "query": query });
+        // Use The Graph Gateway endpoint for Aave v3 mainnet. Requires THEGRAPH_API_KEY in .env
+        let graph_api_key = std::env::var("THEGRAPH_API_KEY").expect("THEGRAPH_API_KEY must be set in .env");
+        let aave_v3_subgraph_id = "HB1Z2EAw4rtPRYVb2Nz8QGFLHCpym6ByBX6vbCViuE9F";
+        let url = format!("https://gateway.thegraph.com/api/{}/subgraphs/id/{}", graph_api_key, aave_v3_subgraph_id);
+        let resp = client.post(&url)
+            .json(&req_body)
+            .send()
+            .await?;
+        let resp_text = resp.text().await?;
+        log::error!("[GraphQL] Raw response: {}", resp_text);
+        let resp_json: GraphResponse = serde_json::from_str(&resp_text)?;
+        if resp_json.data.users.is_empty() {
+            break;
+        }
+        for user in resp_json.data.users.iter() {
+            if let Ok(addr) = user.id.parse() {
+                addresses.insert(addr);
+            }
+        }
+        last_id = resp_json.data.users.last().unwrap().id.clone();
+    }
+    Ok(addresses.into_iter().collect())
 }
 
 // Helper: Fetch Venus users from The Graph (paginated)
-async fn fetch_venus_users_from_graph() -> Result<Vec<Address>, Box<dyn std::error::Error + Send + Sync>> {
+#[allow(dead_code)]
+async fn fetch_venus_users_from_graph() -> Result<Vec<Address>, Box<dyn std::error::Error + Send + Sync + 'static>> {
     use std::collections::HashSet;
     use serde::Deserialize;
     #[derive(Deserialize)]
@@ -445,14 +327,21 @@ async fn fetch_venus_users_from_graph() -> Result<Vec<Address>, Box<dyn std::err
     let client = reqwest::Client::new();
     let mut addresses = HashSet::new();
     let mut last_id = String::from("0x0000000000000000000000000000000000000000");
+    let mut scan_round = 0;
     loop {
+        scan_round += 1;
+        info!("[VenusHelper] Scanning round {} for accounts after {}", scan_round, last_id);
         let query = format!(r#"{{ accounts(first: 1000, where: {{hasBorrowed: true, id_gt: "{}"}}) {{ id }} }}"#, last_id);
         let req_body = serde_json::json!({ "query": query });
+        // TODO: Update to a working Venus subgraph endpoint. See: https://thegraph.com/explorer/subgraphs?query=venus
+        log::warn!("Venus subgraph endpoint may be deprecated. Please update to a working endpoint or use direct on-chain event log scraping as a fallback. See https://docs.venus.io/ for more info.");
         let resp = client.post("https://api.thegraph.com/subgraphs/name/venusprotocol/venus")
             .json(&req_body)
             .send()
             .await?;
-        let resp_json: GraphResponse = resp.json().await?;
+        let resp_text = resp.text().await?;
+        log::error!("[GraphQL] Raw response: {}", resp_text);
+        let resp_json: GraphResponse = serde_json::from_str(&resp_text)?;
         if resp_json.data.accounts.is_empty() {
             break;
         }
@@ -462,13 +351,13 @@ async fn fetch_venus_users_from_graph() -> Result<Vec<Address>, Box<dyn std::err
             }
         }
         last_id = resp_json.data.accounts.last().unwrap().id.clone();
-        
     }
     Ok(addresses.into_iter().collect())
 }
 
 // Helper: Fetch Compound users from The Graph (paginated)
-async fn fetch_compound_users_from_graph() -> Result<Vec<Address>, Box<dyn std::error::Error + Send + Sync>> {
+#[allow(dead_code)]
+async fn fetch_compound_users_from_graph() -> Result<Vec<Address>, Box<dyn std::error::Error + Send + Sync + 'static>> {
     use std::collections::HashSet;
     use serde::Deserialize;
     #[derive(Deserialize)]
@@ -486,14 +375,21 @@ async fn fetch_compound_users_from_graph() -> Result<Vec<Address>, Box<dyn std::
     let client = reqwest::Client::new();
     let mut addresses = HashSet::new();
     let mut last_id = String::from("0x0000000000000000000000000000000000000000");
+    let mut scan_round = 0;
     loop {
+        scan_round += 1;
+        info!("[VenusHelper] Scanning round {} for accounts after {}", scan_round, last_id);
         let query = format!(r#"{{ accounts(first: 1000, where: {{hasBorrowed: true, id_gt: "{}"}}) {{ id }} }}"#, last_id);
         let req_body = serde_json::json!({ "query": query });
+        // TODO: Update to a working Compound subgraph endpoint. See: https://thegraph.com/explorer/subgraphs?query=compound
+        log::warn!("Compound subgraph endpoint may be deprecated. Please update to a working endpoint.");
         let resp = client.post("https://api.thegraph.com/subgraphs/name/graphprotocol/compound-v2")
             .json(&req_body)
             .send()
             .await?;
-        let resp_json: GraphResponse = resp.json().await?;
+        let resp_text = resp.text().await?;
+        log::error!("[GraphQL] Raw response: {}", resp_text);
+        let resp_json: GraphResponse = serde_json::from_str(&resp_text)?;
         if resp_json.data.accounts.is_empty() {
             break;
         }
@@ -503,94 +399,7 @@ async fn fetch_compound_users_from_graph() -> Result<Vec<Address>, Box<dyn std::
             }
         }
         last_id = resp_json.data.accounts.last().unwrap().id.clone();
-        
     }
     Ok(addresses.into_iter().collect())
 }
-    // (function body already defined above, remove this duplicate)
-
-pub struct CompoundHelper {
-    pub sender: mpsc::Sender<LiquidationEvent>,
-}
-
-impl ProtocolHelper for CompoundHelper {
-    fn protocol_name(&self) -> &'static str {
-        "Compound"
-    }
-    fn spawn_detection(&self) {
-        let _sender = self.sender.clone();
-        
-        
-        tokio::spawn(async move {
-            info!("[CompoundHelper] Starting Compound mainnet liquidation monitoring");
-            use ethers::prelude::*;
-            use std::sync::Arc;
-            use std::time::Duration;
-            let compound_comptroller_address = match env::var("COMPOUND_COMPTROLLER") {
-                Ok(addr) => addr,
-                Err(_) => {
-                    error!("[CompoundHelper] COMPOUND_COMPTROLLER env var required");
-                    return;
-                }
-            };
-            let compound_comptroller: Address = match compound_comptroller_address.parse() {
-                Ok(addr) => addr,
-                Err(_) => {
-                    error!("[CompoundHelper] Invalid Compound Comptroller address");
-                    return;
-                }
-            };
-            let abi: Abi = match File::open("src/abi/CompoundComptroller.json") {
-                Ok(f) => match serde_json::from_reader(f) {
-                    Ok(a) => a,
-                    Err(_) => {
-                        error!("[CompoundHelper] CompoundComptroller ABI parse error");
-                        return;
-                    }
-                },
-                Err(_) => {
-                    error!("[CompoundHelper] CompoundComptroller ABI file missing");
-                    return;
-                }
-            };
-            let provider = Provider::try_from("http://localhost:8545").unwrap();
-            let client = provider.clone();
-            let contract = Contract::new(compound_comptroller, abi, Arc::new(client));
-            loop {
-                match contract.method::<(), Vec<Address>>("getAllMarkets", ()).unwrap().call().await {
-                    Ok(accounts) => {
-                        use futures::stream::FuturesUnordered;
-                        use tokio::sync::Semaphore;
-                        use std::sync::Arc as StdArc;
-                        let semaphore = StdArc::new(Semaphore::new(20));
-                        let mut tasks = FuturesUnordered::new();
-                        for account in accounts {
-                            let contract = contract.clone();
-                            let sender = _sender.clone();
-                            let provider = provider.clone();
-                            let semaphore = semaphore.clone();
-                            tasks.push(tokio::spawn(async move {
-                                let _permit = semaphore.acquire().await;
-                                (account, contract.method::<Address, (U256, U256, U256)>("getAccountLiquidity", account).unwrap().call().await, contract.clone(), sender, provider)
-                            }));
-                        }
-                        while let Some(Ok((account, liquidity_res, contract, sender, provider))) = tasks.next().await {
-                            match liquidity_res {
-                                Ok(liquidity) => {
-                                    // TODO: Add logic for processing liquidity
-                                }
-                                Err(e) => {
-                                    log::error!("[CompoundHelper] Error getting liquidity: {}", e);
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        log::error!("[CompoundHelper] Error getting markets: {}", e);
-                    }
-                }
-                tokio::time::sleep(Duration::from_secs(15)).await;
-            }
-        });
-    }
-}
+// --- End Helper functions ---

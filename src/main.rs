@@ -1,18 +1,25 @@
 // /home/nox/Fusion/src/main.rs
 
-use actix_files::Files;
+
 use actix_web::{App, HttpServer, web};
 use config::{Config, Environment, File};
 use dotenvy::dotenv;
-use fusion::analysis::AnalysisHub;
+
 use fusion::config::Settings;
-use fusion::matrix::MatrixManager;
-mod dex_price_fetch;
-use dex_price_fetch::{fetch_price, Dex};
-use fusion::providers::ProviderManager;
+use fusion::matrix2d::Matrix2D;
 use std::sync::Arc;
-use tokio;
 use tokio::sync::Mutex;
+
+
+use fusion::providers::ProviderManager;
+use fusion::liquidation_monitor::LiquidationMonitor;
+use fusion::liquidation_monitor_real::{RealArbitrageExecutor, VenusHelper};
+use tokio::sync::mpsc;
+// use fusion::optimizer_ai::OptimizerAI;
+use fusion::shared_state::SharedState;
+use fusion::api;
+
+
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -30,11 +37,65 @@ async fn main() -> std::io::Result<()> {
     // Load configuration
     let settings: Settings = Config::builder()
         .add_source(File::with_name("config/default.toml"))
-        .add_source(Environment::with_prefix("APP"))
+        .add_source(Environment::default())
         .build()
         .expect("Failed to build config")
         .try_deserialize()
         .expect("Failed to deserialize settings");
+
+    // Initialize shared state
+    let shared = Arc::new(Mutex::new(SharedState::default()));
+
+    // Initialize on-chain providers with rotation support
+    let provider_manager = Arc::new(
+        ProviderManager::new(Arc::new(settings.clone()))
+            .await
+            .expect("ProviderManager initialization failed"),
+    );
+
+    // === Multi-Protocol Liquidation Monitoring ===
+    // Create async channel for liquidation events
+    let (liquidation_tx, liquidation_rx) = mpsc::channel(32);
+
+    // Set up the real executor
+    let execution_log = Arc::new(fusion::execution_log::ExecutionLog::new());
+    let real_executor = RealArbitrageExecutor {
+        abi_path: "out/ArbitrageExecutor.sol/ArbitrageExecutor.json".to_string(),
+        profit_wallet: std::env::var("PROFIT_WALLET").unwrap_or_default(),
+        execution_log: execution_log.clone(),
+    };
+
+    // Spawn Venus protocol helper
+    let _venus_helper = VenusHelper {
+        client: provider_manager.bsc_provider.as_ref().expect("No BSC provider").http_provider.clone(),
+        sender: liquidation_tx.clone(),
+    };
+    tokio::spawn(_venus_helper.spawn_detection(shared.clone()));
+
+    // Spawn Aave protocol helper
+    let _aave_helper = fusion::liquidation_monitor_real::AaveHelper {
+        client: provider_manager.eth_provider.as_ref().expect("No ETH provider").http_provider.clone(),
+        sender: liquidation_tx.clone(),
+    };
+    tokio::spawn(_aave_helper.spawn_detection(shared.clone()));
+
+    // Spawn Compound protocol helper
+    let _compound_helper = fusion::liquidation_monitor_real::CompoundHelper {
+        client: provider_manager.eth_provider.as_ref().expect("No ETH provider").http_provider.clone(),
+        sender: liquidation_tx.clone(),
+    };
+    tokio::spawn(_compound_helper.spawn_detection(shared.clone()));
+
+    // Spawn the liquidation monitor in parallel with the real executor
+    tokio::spawn(LiquidationMonitor::new_with_rx_and_executor(liquidation_rx, real_executor.clone()).run(shared.clone()));
+
+    // Spawn the profit-maximizing AI controller
+    let execution_log = real_executor.execution_log.clone();
+    let shared_ai = shared.clone();
+    tokio::spawn(fusion::ai_controller::run_ai_controller(execution_log, shared_ai));
+
+    // (Optional) Spawn the optimizer AI if you want both
+    // tokio::spawn(OptimizerAI::new().run(shared.clone()));
     let settings = Arc::new(settings);
 
     // === SECURITY CHECK: Warn if secrets are not set via environment variables ===
@@ -61,6 +122,13 @@ async fn main() -> std::io::Result<()> {
             exit(1);
         }
     }
+    // Initialize Matrix2D (shared state)
+    // TODO: Select appropriate asset list from settings (e.g. matrix1_tokens or similar)
+    let matrix2d = Arc::new(Mutex::new(Matrix2D::new(
+        (*settings).dexes.clone(),
+        (*settings).matrix1_tokens.clone(), // Default to matrix1_tokens, update as needed
+    )));
+
     // DEBUG: Print private key length before ProviderManager
     if let Some(pk) = &settings.private_key {
         println!("[DEBUG] PRIVATE_KEY length: {}", pk.len());
@@ -93,104 +161,25 @@ async fn main() -> std::io::Result<()> {
             .await
             .expect("ProviderManager initialization failed"),
     ));
-    // Initialize matrix manager with ETH and BSC matrices from config
-    let matrix_manager = Arc::new(MatrixManager::with_settings(&settings));
-    // Spawn periodic price updater and arbitrage scanning task
-    {
-        let mm = matrix_manager.clone();
-        let cfg = settings.clone();
-        // Build tokens, pairs, and dex_map as owned values before spawning tasks
-        let mut tokens = std::collections::HashMap::new();
-        tokens.insert("WBNB".to_string(), cfg.token_wbnb.clone());
-        tokens.insert("BUSD".to_string(), cfg.token_busd.clone());
-        tokens.insert("USDT".to_string(), cfg.token_usdt.clone());
-        tokens.insert("USDC".to_string(), cfg.token_usdc.clone());
-        tokens.insert("CAKE".to_string(), cfg.token_cake.clone());
-        for symbol in cfg.matrix1_tokens.clone() {
-            if !tokens.contains_key(&symbol) {
-                let key = format!("token_{}", symbol.to_lowercase());
-                if let Ok(val) = std::env::var(&key.to_uppercase()) {
-                    tokens.insert(symbol, val);
-                }
-            }
-        }
-        let pairs: Vec<(String, String)> = cfg.matrix1_pairs.clone().into_iter().filter_map(|pair| {
-            let parts: Vec<&str> = pair.split('/').collect();
-            if parts.len() == 2 {
-                Some((parts[0].to_string(), parts[1].to_string()))
-            } else {
-                None
-            }
-        }).collect();
-        let dex_map: Vec<(String, Dex)> = cfg.dexes.clone().into_iter().filter_map(|dex_name| {
-            match dex_name.to_lowercase().as_str() {
-                "pancakeswap" => Some(("PancakeSwap".to_string(), Dex::PancakeSwap)),
-                "biswap" => Some(("Biswap".to_string(), Dex::Biswap)),
-                "apeswap" => Some(("ApeSwap".to_string(), Dex::ApeSwap)),
-                "babyswap" => Some(("BabySwap".to_string(), Dex::BabySwap)),
-                "mdex" => Some(("MDEX".to_string(), Dex::MDEX)),
-                "dodo" => Some(("DODO".to_string(), Dex::DODO)),
-                "thena" => Some(("Thena".to_string(), Dex::Thena)),
-                "ellipsis" => Some(("Ellipsis".to_string(), Dex::Ellipsis)),
-                "waultswap" => Some(("WaultSwap".to_string(), Dex::WaultSwap)),
-                _ => None,
-            }
-        }).collect();
-        for (dex_name, dex_enum) in dex_map {
-            for (base, quote) in &pairs {
-                let mm = mm.clone();
-                let dex_name = dex_name.clone();
-                let dex_enum = dex_enum.clone();
-                let base = base.clone();
-                let quote = quote.clone();
-                let tokens = tokens.clone();
-                tokio::spawn(async move {
-                    loop {
-                        let base_addr = tokens.get(&base);
-                        let quote_addr = tokens.get(&quote);
-                        if let (Some(base_addr), Some(_quote_addr)) = (base_addr, quote_addr) {
-                            if let Some(price) = fetch_price(dex_enum.clone(), base_addr).await {
-                                mm.update_dex_price("BSC", &dex_name, price);
-                                log::info!("[PRICE UPDATE] {} {}-{}: {}", dex_name, base, quote, price);
-                            }
-                        }
-                        tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
-                    }
-                });
-            }
-        }
-        // Arbitrage scan task
-        let mm = matrix_manager.clone();
-        let cfg = settings.clone();
-        let provider_guard = provider_manager.lock().await;
-        let eth_chain = provider_guard.eth_provider.as_ref().expect("ETH provider not configured");
-        let client = eth_chain.http_provider.clone();
-        // Run arbitrage scan in a tight loop (no artificial delay)
-        tokio::spawn(async move {
-            loop {
-                let matrices = mm.all();
-                let opps = AnalysisHub::scan_all(&matrices, &cfg, client.clone()).await;
-                log::info!("Found {} arbitrage opportunities", opps.len());
-                // Minimal sleep to avoid 100% CPU, but maximize scan frequency
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-            }
-        });
-    }
+
     // Start HTTP/WebSocket server
     HttpServer::new(move || {
         App::new()
-            .app_data(web::Data::new(matrix_manager.clone()))
-            .app_data(web::Data::new(provider_manager.clone()))
-            .service(fusion::api::get_matrices)
-            .service(fusion::api::get_completed_transactions)
-            .service(fusion::api::post_transfer)
-            .service(fusion::api::get_wallet_status)
-            .service(fusion::api::post_connect_wallet)
-            .service(fusion::api::ws_matrices_handler)
-            // serve built frontend
-            .service(Files::new("/", "frontend/dist").index_file("index.html"))
+            .app_data(web::Data::from(settings.clone()))
+            .app_data(web::Data::from(provider_manager.clone()))
+            .app_data(web::Data::from(matrix2d.clone()))
+            .service(api::get_matrix2d)
+            .service(api::post_transfer)
+            .service(api::get_wallet_status)
+            .service(api::post_connect_wallet)
+            .route("/ws/matrix2d", web::get().to(fusion::api_ws::ws_matrix2d_handler))
+            
     })
-    .bind(("127.0.0.1", 8000))?
+    // TODO: Replace with actual host/port fields from Settings. Example uses environment variables or hardcoded values.
+    .bind((
+        std::env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()),
+        std::env::var("SERVER_PORT").unwrap_or_else(|_| "8080".to_string()).parse::<u16>().unwrap_or(8080)
+    ))?
     .run()
     .await
 }

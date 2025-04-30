@@ -1,0 +1,20 @@
+[DEBUG] CWD: /home/nox/Fusion
+[DEBUG] PRIVATE_KEY=Err(NotPresent)
+[DEBUG] PROFIT_WALLET=Err(NotPresent)
+[DEBUG] INFURA_API_KEY=Err(NotPresent)
+[DEBUG] ALCHEMY_API_KEY=Err(NotPresent)
+[DEBUG] NODEREAL_API_KEY=Err(NotPresent)
+[DEBUG] PRIVATE_KEY length: 66
+[DEBUG] PRIVATE_KEY raw: "0x3c2e58ba0db39da5f7faad2437bbd8b53fbcd1a179fa8be42bafb1b15477430a"
+[DEBUG] BSC Infura URL: https://bsc-mainnet.infura.io/v3/9a37d060c34a4bf99f575de7823eb595
+[DEBUG] ETH Infura URL: https://mainnet.infura.io/v3/9a37d060c34a4bf99f575de7823eb595
+[DEBUG] BSC Alchemy URL: https://bnb-mainnet.g.alchemy.com/v2/m_zqgElJG_pdR_FJchhyqAJ20yVB-DrB
+[DEBUG] ETH Alchemy URL: https://eth-mainnet.g.alchemy.com/v2/m_zqgElJG_pdR_FJchhyqAJ20yVB-DrB
+[DEBUG] BSC NodeReal URL: https://bsc-mainnet.nodereal.io/v1/ceb5051b09ca4372a48ef1861383ad79
+[DEBUG] ETH NodeReal URL: https://eth-mainnet.nodereal.io/v1/ceb5051b09ca4372a48ef1861383ad79
+Attempting to connect to BscMainnet (Chain ID: 56)...
+  Trying provider: Infura at URL: https://bsc-mainnet.infura.io/v3/9a37d060c34a4bf99f575de7823eb595
+    Successfully connected to Infura!
+Attempting to connect to EthMainnet (Chain ID: 1)...
+  Trying provider: Infura at URL: https://mainnet.infura.io/v3/9a37d060c34a4bf99f575de7823eb595
+    Successfully connected to Infura!

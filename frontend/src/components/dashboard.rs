@@ -1,141 +1,387 @@
-use yew::{function_component, html, Html};
-use crate::components::ui::hud_stat_card::HudStatCard;
-use crate::api::profit::fetch_profit;
-use yew::use_effect;
-use wasm_bindgen_futures::spawn_local;
-use crate::components::ui::ai_orb::AIOrb;
-use crate::components::ui::ai_orb_states::{AIOrbStates, OrbState};
-use crate::components::ui::fusion_chat::FusionChat;
+use yew::prelude::*;
+use wasm_bindgen::closure::Closure;
 
-/// Floating AI orb with animation and message
-fn ai_orb_panel(state: OrbState, message: &str) -> Html {
+
+// TODO: To use canvas, enable HtmlCanvasElement and CanvasRenderingContext2d features in web-sys in Cargo.toml
+// use web_sys::{HtmlCanvasElement, CanvasRenderingContext2d};
+// use yew_hooks::use_interval; // Removed unresolved import
+// use gloo::timers::future::TimeoutFuture; // Remove unresolved import
+
+use gloo_timers::future::TimeoutFuture;
+use rand::Rng;
+use wasm_bindgen_futures::spawn_local;
+
+// Define a macro for setting styles dynamically
+macro_rules! set_style {
+    ($element:ident, $($name:literal: $value:expr,)*) => {
+        {
+            let mut style_string = String::new();
+            $(
+                style_string.push_str(&format!("{}:{};", $name, $value));
+            )*
+            $element.set_attribute("style", &style_string).unwrap();
+        }
+    };
+}
+
+// Custom hook for animated counter (Yew version)
+#[hook]
+fn use_counter_animation(target_value: i32, duration: u64, delay: u64) -> i32 {
+    let value = use_state(|| 0);
+    let start_time = use_state(|| 0.0);
+    let animation_frame = use_state(|| None::<Closure<dyn FnMut()>>);
+    let is_animating = use_state(|| false);
+    let target = target_value;
+    let val = (*value).clone();
+    let set_val = value.setter();
+
+    let animate = {
+        let start = start_time.clone();
+        let frame = animation_frame.clone();
+        let animating = is_animating.clone();
+        Callback::from(move |_| {
+            if !*animating {
+                start.set(/* TODO: performance.now() logic (gloo not available) */ 0.0);
+                animating.set(true);
+
+                let update_value = {
+                    let start_t = start.clone();
+                    let val_setter = set_val.clone();
+                    let duration_ms = duration as f64;
+                    let target_v = target;
+                    let anim_frame = frame.clone();
+                    let animating_state = animating.clone();
+                    Closure::<dyn FnMut()>::new(move || {
+                        let now = /* TODO: performance.now() logic (gloo not available) */ 0.0;
+                        let elapsed = now - *start_t; // start_t is UseStateHandle<f64>
+                        if elapsed < duration_ms {
+                            let next_value = ((elapsed / duration_ms) * target_v as f64) as i32;
+                            val_setter.set(next_value);
+                            // TODO: request_animation_frame logic not implemented in this context.
+                            let handle = None;
+                            anim_frame.set(handle);
+                        } else {
+                            val_setter.set(target_v);
+                            animating_state.set(false);
+                            if let Some(handle) = (*anim_frame).as_ref() {
+                                // TODO: cancel_animation_frame not implemented in this context.
+                                anim_frame.set(None);
+                            }
+                        }
+                    })
+                    
+                };
+
+                // TODO: request_animation_frame not implemented in this context.
+                let handle = None;
+                frame.set(handle);
+            }
+        })
+    };
+
+    {
+        let animate_cb = animate.clone();
+        use_effect_with((), move |_| {
+            let timeout = TimeoutFuture::new(delay as u32);
+            spawn_local(async move {
+                timeout.await;
+                animate_cb.emit(());
+            });
+            || {}
+        });
+    }
+
+    val
+}
+
+// Progress bar with animation (Yew version)
+#[derive(Properties, PartialEq)]
+pub struct AnimatedProgressBarProps {
+    pub value: i32,
+    pub color: String,
+}
+
+#[function_component(AnimatedProgressBar)]
+fn animated_progress_bar(props: &AnimatedProgressBarProps) -> Html {
+    let width = use_state(|| 0);
+    let value = props.value;
+    let set_width = width.setter();
+
+    {
+        use_effect_with((), move |_| {
+            let timeout = TimeoutFuture::new(300);
+            spawn_local(async move {
+                timeout.await;
+                set_width.set(value);
+            });
+            || {}
+        });
+    }
+
     html! {
-        <div style="position:fixed;bottom:2.5rem;right:2.5rem;z-index:1000;">
-            <AIOrbStates state={state} message={message.to_string()} />
+        <div class="animated-progress-bar">
+            <div
+                class="bar"
+                style={format!("width: {}%; background-color: {}; box-shadow: 0 0 8px {};", *width, props.color, props.color)}
+            >
+            </div>
         </div>
     }
 }
 
-// TODO: Only one Dashboard function_component should exist. This is the canonical version.
+// Pulse effect component (Yew version)
+#[function_component(PulseEffect)]
+fn pulse_effect() -> Html {
+    html! {
+        <span class="absolute w-full h-full bg-cyan-500 rounded-full animate-ping opacity-30"></span>
+    }
+}
+
+#[derive(Properties, PartialEq)]
+pub struct StatusIndicatorProps {
+    pub status: String,
+}
+
+#[function_component(StatusIndicator)]
+fn status_indicator(props: &StatusIndicatorProps) -> Html {
+    let status_colors = match props.status.as_str() {
+        "normal" => "bg-emerald-500",
+        "warning" => "bg-amber-500",
+        "critical" => "bg-red-500",
+        _ => "bg-gray-500",
+    };
+
+    html! {
+        <div class="status-indicator">
+            <span class={format!("status-dot {}", props.status)}></span>
+            {
+                if props.status != "normal" {
+                    html! { <PulseEffect /> }
+                } else {
+                    Html::default()
+                }
+            }
+        </div>
+    }
+}
+
+// Stat card component (Yew version)
+#[derive(Properties, PartialEq)]
+pub struct StatCardProps {
+    pub icon: AttrValue,
+    pub title: String,
+    pub value: i32,
+    pub status: String,
+    pub color: String,
+}
+
+#[function_component(StatCard)]
+fn stat_card(props: &StatCardProps) -> Html {
+    let animated_value = use_counter_animation(props.value, 2000, 0);
+    let icon = props.icon.clone();
+
+    html! {
+        <div class="stat-card">
+            <div class="absolute top-0 right-0 w-36 h-36 bg-gradient-to-br from-blue-600 to-transparent opacity-25 rounded-full transform translate-x-10 -translate-y-10 blur-md"></div>
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center space-x-3">
+                    <div class={format!("p-3 {} bg-opacity-30 rounded-lg", props.color)}>
+                        /* TODO: LucideIcon component not found. Icon display disabled. */
+                    </div>
+                    <h3>{props.title.clone()}</h3>
+                </div>
+                <StatusIndicator status={props.status.clone()} />
+            </div>
+            <div class="value">{animated_value.to_string()}</div>
+            <AnimatedProgressBar value={std::cmp::min(props.value, 100)} color={props.color.clone()} />
+        </div>
+    }
+}
+
+// Terminal output component (Yew version)
+#[function_component(TerminalOutput)]
+fn terminal_output() -> Html {
+    let lines = use_state(|| Vec::<TerminalLine>::new());
+    let set_lines = lines.setter();
+    let entries = vec![
+        TerminalLine { text: "System initialized".to_string(), type_: "info".to_string() },
+        TerminalLine { text: "Network connections established".to_string(), type_: "success".to_string() },
+        TerminalLine { text: "Scanning for vulnerabilities...".to_string(), type_: "info".to_string() },
+        TerminalLine { text: "Warning: Unauthorized access attempt blocked".to_string(), type_: "warning".to_string() },
+        TerminalLine { text: "Memory optimization complete: 16% improvement".to_string(), type_: "success".to_string() },
+        TerminalLine { text: "AI systems online - all parameters nominal".to_string(), type_: "info".to_string() },
+        TerminalLine { text: "Critical: Power fluctuation detected in sector 7".to_string(), type_: "error".to_string() },
+        TerminalLine { text: "Deploying countermeasures...".to_string(), type_: "info".to_string() },
+        TerminalLine { text: "Threat neutralized".to_string(), type_: "success".to_string() },
+    ];
+    let set_lines = lines.setter();
+
+    #[derive(Clone, PartialEq)]
+    struct TerminalLine {
+        text: String,
+        type_: String,
+    }
+
+    let get_line_color = |type_: &str| -> &str {
+        match type_ {
+            "success" => "text-emerald-400",
+            "warning" => "text-amber-400",
+            "error" => "text-red-400",
+            _ => "text-blue-400",
+        }
+    };
+
+    {
+        let set_lines = set_lines.clone();
+        let entries = entries.clone();
+        use_effect_with((), move |_| {
+            // For demonstration, add the first entry
+            let mut new_lines = Vec::new();
+if let Some(entry) = entries.get(0) {
+    new_lines.push(entry.clone());
+}
+set_lines.set(new_lines);
+            || {}
+        });
+    }
+
+    html! {
+        <div class="terminal-output">
+            {
+                (*lines).iter().map(|line| html! {
+                    <div class="mb-1 flex">
+                        <span class={format!("{} mr-2", get_line_color(&line.type_))}>{">"}</span>
+                        <span class="text-zinc-400">{&line.text}</span>
+                    </div>
+                }).collect::<Html>()
+            }
+            <div class="animate-pulse">{">"} <span class="inline-block w-2 h-4 bg-cyan-500 ml-1"></span></div>
+        </div>
+    }
+}
+
+// Circular gauge component (Yew version)
+#[derive(Properties, PartialEq)]
+pub struct CircularGaugeProps {
+    pub value: i32,
+    pub max_value: i32,
+    pub title: String,
+    pub color: String,
+    pub icon: AttrValue,
+}
+
+#[function_component(CircularGauge)]
+fn circular_gauge(props: &CircularGaugeProps) -> Html {
+    let percentage = (props.value as f64 / props.max_value as f64) * 100.0;
+    let animated_value = use_counter_animation(props.value, 1500, 200);
+    let circumference = 2.0 * std::f64::consts::PI * 40.0;
+    let stroke_dashoffset = circumference - (percentage / 100.0) * circumference;
+    let offset = use_state(|| circumference);
+    let set_offset = offset.setter();
+    let gauge_color = props.color.clone().replace("bg-", "stroke-");
+    let icon = props.icon.clone();
+
+    {
+        let dash_offset = stroke_dashoffset;
+        use_effect_with((), move |_| {
+            let timeout = TimeoutFuture::new(500);
+            spawn_local(async move {
+                timeout.await;
+                set_offset.set(dash_offset);
+            });
+            || {}
+        });
+    }
+
+    html! {
+        <div class="flex flex-col items-center justify-center p-3">
+            <div class="relative w-28 h-28 flex items-center justify-center">
+                <svg class="w-28 h-28 transform -rotate-90" viewBox="0 0 100 100">
+                    <circle
+                        cx="50" cy="50" r="40"
+                        stroke="#374151" stroke-width="8" fill="transparent"
+                    />
+                    <circle
+                        cx="50" cy="50" r="40"
+                        stroke={gauge_color} stroke-width="8" fill="transparent"
+                        stroke-dasharray={circumference.to_string()}
+                        stroke-dashoffset={(*offset).to_string()}
+                        stroke-linecap="round"
+                        class="transition-all duration-1000 ease-out"
+                        style="box-shadow: 0 0 8px 1px rgba(0,0,0,0.4);"
+                    />
+                </svg>
+                <div class="absolute inset-0 flex items-center justify-center flex-col">
+                    /* TODO: LucideIcon component not found. Icon display disabled. */
+                    <span class="text-white text-lg font-bold">{animated_value.to_string()}</span>
+                </div>
+            </div>
+            <div class="text-xs text-zinc-500 mt-2 text-center uppercase tracking-wider">{props.title.clone()}</div>
+        </div>
+    }
+}
+
+// AI Holographic Orb component (Yew version - Enhanced Detail and Pop)
+#[function_component(AIHolographicOrb)]
+pub fn ai_holographic_orb() -> Html {
+    html! { <div class="orb-placeholder">{"Orb Placeholder"}</div> }
+}
+
+use crate::components::ui::header::Header;
+use crate::components::ui::footer::Footer;
+use crate::components::matrix_panel::MatrixPanel;
+use crate::components::scanning_panel::ScanningPanel;
+use crate::components::slider_liquidity::SliderLiquidity;
+use crate::components::slider_marginal_optimizer::SliderMarginalOptimizer;
+use crate::components::ui::wallet_connect::WalletConnect;
+use crate::components::ui::ai_orb::AIOrb;
+
+// Dashboard component (Yew version)
 #[function_component(Dashboard)]
 pub fn dashboard() -> Html {
-    use yew::use_state;
-    use yew::use_effect;
-    use std::rc::Rc;
-    use gloo_timers::callback::Interval;
-
-    let orb_states = vec![
-        (OrbState::Idle, "Fusion is idle, awaiting input..."),
-        (OrbState::Listening, "Listening for your command..."),
-        (OrbState::Thinking, "Analyzing arbitrage opportunities..."),
-        (OrbState::Speaking, "Maximizing arbitrage profits!"),
-        (OrbState::Error, "System anomaly detected.")
-    ];
-    let state_idx = use_state(|| 0);
-    let orb_states = Rc::new(orb_states);
-
-    // PROFIT STATE
-    enum ProfitState {
-        Loading,
-        Loaded(f64),
-        Error(String),
-    }
-    let profit_state = use_state(|| ProfitState::Loading);
-    {
-        let profit_state = profit_state.clone();
-        use_effect(move || {
-            spawn_local(async move {
-                match fetch_profit().await {
-                    Some(val) => profit_state.set(ProfitState::Loaded(val)),
-                    None => profit_state.set(ProfitState::Error("Failed to fetch profit".into())),
-                }
-            });
-            || ()
-        });
-    }
-
-    {
-        let state_idx = state_idx.clone();
-        let orb_states = orb_states.clone();
-        use_effect(move || {
-            let interval = Interval::new(2000, move || {
-                state_idx.set(((*state_idx + 1) % orb_states.len()) as usize);
-            });
-            move || drop(interval)
-        });
-    }
-    let (orb_state, orb_msg) = orb_states[*state_idx].clone();
-
     html! {
-        <div class="fusion-dashboard">
-            { hud_background() }
-            { ai_orb_panel(orb_state, orb_msg) }
-            <div style="position:fixed;bottom:2.5rem;right:22rem;z-index:1100;max-width:340px;">
-                <FusionChat />
+        <div class="fusion-dashboard" style="position:relative;min-height:100vh;">
+            <Header />
+
+            // 3D Floating Orb (AI) in the center of the dashboard grid with holographic stand
+            <div class="dashboard-grid" style="position:relative;">
+                <div style="grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; justify-content: center; margin-bottom: 2.5rem; margin-top: 0.5rem;">
+                    <div id="orb3d-canvas" style="width:220px;height:220px;pointer-events:none;z-index:60;"></div>
+                    <div class="holo-stand-container" style="margin-top:-32px;z-index:59;">
+                        <div class="holo-stand"></div>
+                    </div>
+                    <div style="display:flex;gap:2.2rem;margin-top:1.2rem;">
+                        <canvas id="gauge-1" width="110" height="110" style="background:none;"></canvas>
+                        <canvas id="gauge-2" width="110" height="110" style="background:none;"></canvas>
+                        <canvas id="gauge-3" width="110" height="110" style="background:none;"></canvas>
+                    </div>
+                </div>
+                <div style="grid-column: 1 / -1;">
+                    <div class="glass-panel" style="min-height:320px;max-height:420px;overflow:auto;padding:0.5rem 0.5rem 0 0.5rem;">
+                        <div style="color:#00fff7;text-align:left;margin:0 0 0.7rem 0;font-size:1.2rem;font-weight:bold;">{"Live Transaction Analysis"}</div>
+                        <div id="tx-window"></div>
+                    </div>
+                </div>
+                <MatrixPanel />
+                <ScanningPanel />
+                <SliderLiquidity />
+                <SliderMarginalOptimizer />
+                <WalletConnect />
+                <TerminalOutput />
             </div>
-            <div class="hud-stat-row" style="display:flex;gap:2rem;justify-content:center;margin-top:5rem;">
-                {
-                    match &*profit_state {
-                        ProfitState::Loading => html! { <HudStatCard label="Profit" value="Loading..." percent={0.0} color="#00fff7" /> },
-                        ProfitState::Loaded(val) => {
-                            let percent = if *val > 0.0 { 1.0 } else { 0.0 };
-                            html! { <HudStatCard label="Profit" value={format!("${:.0}", val)} percent={percent} color="#00fff7" /> }
-                        },
-                        ProfitState::Error(e) => html! { <HudStatCard label="Profit" value={format!("Error: {}", e)} percent={0.0} color="#ff0033" /> },
-                    }
-                }
-                <HudStatCard label="Arbitrages" value="57" percent={0.57} color="#ae00ff" />
-                <HudStatCard label="Spread" value="3.2%" percent={0.32} color="#00ffae" />
-                <HudStatCard label="Gas Used" value="1.4M" percent={0.44} color="#ff00ae" />
+
+            <Footer />
+        
+            <canvas id="liquid-orb-canvas" width="1920" height="1080" style="position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:10;"></canvas>
+            <div class="z-30 absolute left-1/2 top-2/3 -translate-x-1/2 -translate-y-1/2">
+                <div class="morphic-message" style="background:rgba(24,28,32,0.97);border:2px solid #00fff7;box-shadow:0 4px 32px #00fff7aa;">
+                    {"Hello, Commander. All systems nominal."}
+                </div>
             </div>
-            // ... rest of your dashboard content ...
+            <script src="/static/liquid_orb.js"></script>
+            <script type="module" src="/static/orb3d.js"></script>
+            <script type="module" src="/static/gauges.js"></script>
+            <script type="module" src="/static/transaction_window.js"></script>
         </div>
     }
 }
-
-
-/// Animated SVG/canvas sci-fi background
-fn hud_background() -> Html {
-    html! {
-        <svg class="hud-bg" width="100%" height="100%" viewBox="0 0 1920 1080" style="position:fixed;top:0;left:0;z-index:0;pointer-events:none">
-            <defs>
-                <linearGradient id="hudGrid" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stop-color="#00fff7" stop-opacity="0.13"/>
-                    <stop offset="100%" stop-color="#ae00ff" stop-opacity="0.07"/>
-                </linearGradient>
-            </defs>
-            { for (0..=24).map(|i| html!{
-                <line x1={format!("{}", i*80)} y1="0" x2={format!("{}", i*80)} y2="1080" stroke="url(#hudGrid)" stroke-width="1" />
-            })}
-            { for (0..=13).map(|i| html!{
-                <line x1="0" y1={format!("{}", i*80)} x2="1920" y2={format!("{}", i*80)} stroke="url(#hudGrid)" stroke-width="1" />
-            })}
-            <circle cx="1600" cy="200" r="80" stroke="#00fff7" stroke-width="2" fill="none" opacity="0.3">
-                <animate attributeName="r" values="80;120;80" dur="4s" repeatCount="indefinite" />
-            </circle>
-        </svg>
-    }
-}
-
-/// Sci-fi sidebar for navigation and system status
-fn sidebar() -> Html {
-    html! {
-        <nav class="sidebar glassmorph-neon">
-            <div class="sidebar-logo neon-text">{"FUSION"}</div>
-            <ul class="sidebar-nav">
-                <li>{"OVERVIEW"}</li>
-                <li>{"MATRIX"}</li>
-                <li>{"LOGS"}</li>
-                <li>{"CONTROL"}</li>
-                <li>{"AI ASSISTANT"}</li>
-            </ul>
-            <div class="sidebar-status">
-                <span class="status-dot online"></span> {"SYSTEM ONLINE"}
-            </div>
-        </nav>
-    }
-}
-
-// (Removed duplicate Dashboard component to fix build errors)
-
-// All legacy/duplicate dashboard HTML/code removed. Only the main Dashboard component remains above.

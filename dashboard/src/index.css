@@ -3,26 +3,68 @@
 @tailwind utilities;
 
 body {
-  background: linear-gradient(135deg, #0f172a 60%, #00ffe7 100%);
+  background: radial-gradient(ellipse at 60% 20%, #13223a 60%, #010a17 100%) fixed;
   min-height: 100vh;
   font-family: 'Orbitron', sans-serif;
+  position: relative;
+  overflow-x: hidden;
+}
+
+/* Vignette overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 60%, rgba(0,0,0,0) 60%, rgba(0,0,0,0.7) 100%);
+  z-index: 1;
+}
+
+/* Digital matrix rain effect */
+.matrix-rain {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  opacity: 0.13;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px, #00fff7 2px, transparent 4px, transparent 18px
+  );
+  animation: matrixRain 2.5s linear infinite;
+}
+
+@keyframes matrixRain {
+  0% { background-position-y: 0; }
+  100% { background-position-y: 32px; }
 }
 
 .fusion-orb {
-  box-shadow: 0 0 40px #00fff7, 0 0 80px #00ffe7;
+  box-shadow: 0 0 64px #00fff7, 0 0 120px #00ffe7, 0 0 0 2px #00fff7aa;
   background: radial-gradient(circle at 60% 40%, #b8c6db 60%, #00fff7 100%);
   border-radius: 50%;
   transition: box-shadow 0.3s, background 0.3s;
 }
 
-.fusion-orb-face {
-  /* Placeholder for face morphing animation */
+.fusion-orb-shadow {
+  position: absolute;
+  left: 50%;
+  top: 75%;
+  width: 180px;
+  height: 40px;
+  background: radial-gradient(ellipse at center, rgba(0,255,247,0.22) 0%, rgba(0,0,0,0.28) 100%);
+  border-radius: 50%;
+  filter: blur(6px);
+  transform: translate(-50%, 0);
+  z-index: 5;
 }
 
+
 .fusion-glass {
-  background: rgba(255,255,255,0.07);
-  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
-  backdrop-filter: blur(6px);
-  border-radius: 16px;
-  border: 1px solid rgba(255,255,255,0.18);
+  background: rgba(10,20,40,0.18);
+  box-shadow: 0 8px 40px 0 #00fff7cc, 0 2px 24px 0 #0ff2, 0 0 0 1.5px #00fff733;
+  backdrop-filter: blur(8px) brightness(0.9);
+  border-radius: 20px;
+  border: 1.5px solid rgba(0,255,247,0.13);
+  transition: box-shadow 0.3s, background 0.3s;
 }

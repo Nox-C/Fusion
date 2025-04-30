@@ -6,6 +6,8 @@ use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tokio::task::JoinHandle;
 use url::Url;
+use crate::matrix2d::Matrix2D;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Error)]
 pub enum WebSocketError {
@@ -19,9 +21,30 @@ pub enum WebSocketError {
     SubscriptionError(String),
 }
 
+// --- PriceUpdate struct for parsed price events ---
+#[derive(Debug, Clone)]
+pub struct PriceUpdate {
+    pub dex: String,
+    pub asset: String,
+    pub price: f64,
+}
+
+// --- Per-DEX price update parsing stubs ---
+// Replace the bodies with real parsing logic for each DEX's WebSocket message format
+fn parse_pancakeswap_price_update_from_ws_message(msg: &ethers::providers::PubsubClient) -> Result<PriceUpdate, ()> {
+    // TODO: Implement real parsing for PancakeSwap
+    Err(())
+}
+fn parse_biswap_price_update_from_ws_message(msg: &ethers::providers::PubsubClient) -> Result<PriceUpdate, ()> {
+    // TODO: Implement real parsing for Biswap
+    Err(())
+}
+
 // Structure to manage multiple WebSocket connections and their listeners
 pub struct WebSocketManager {
     settings: Arc<Settings>,
+    // Shared matrix: rows = DEXes, cols = assets
+    pub matrix2d: Arc<Mutex<Matrix2D>>,
     // Store active connections (Provider<Ws>) and their listener tasks
     connections: HashMap<String, (Arc<Provider<Ws>>, JoinHandle<()>)>,
     // Add round-robin rotation for each DEX
@@ -54,8 +77,10 @@ impl WebSocketManager {
                 std::time::Duration::from_secs(60),
             )
         };
+        let matrix2d = Arc::new(Mutex::new(Matrix2D::new(settings.dexes.clone(), settings.assets.clone())));
         Self {
             settings: settings.clone(),
+            matrix2d,
             connections: HashMap::new(),
             pancakeswap_rotation: dex_rotation("PancakeSwap", &settings.websocket_pancakeswap),
             biswap_rotation: dex_rotation("Biswap", &settings.websocket_biswap),
@@ -196,55 +221,78 @@ impl WebSocketManager {
         let ws = Ws::connect(url_str.clone())
             .await
             .map_err(|e| WebSocketError::ConnectionFailed(url_str.clone(), e.to_string()))?;
-        let provider = Arc::new(Provider::new(ws));
-
-        // Spawn a task to listen for messages (e.g., new blocks)
-        let provider_clone = provider.clone();
-        let name_clone = name.clone();
-        let handle = tokio::spawn(async move {
-            log::warn!("   Listener spawned for: {}", name_clone);
-            match provider_clone.subscribe_blocks().await {
+            match provider_clone.subscribe_price_updates().await {
                 Ok(mut stream) => {
-                     log::warn!("   Subscribed to new blocks on: {}", name_clone);
-                    while let Some(block) = stream.next().await {
-                        // --- Simulate a DEX price update and arbitrage scan ---
-                        // In real code, you would extract price data from the DEX feed here
-                        let mut rng = rand::thread_rng();
-                        let price = rng.gen_range(1.0..100.0); // Simulate a price
-                        // Example: matrix_id and dex name are stubbed for now
-                        let matrix_id = if name_clone.contains("ETH") { "matrix_eth_1" } else { "matrix_bsc_1" };
-                        let dex = if name_clone.contains("Pancake") { "PancakeSwap" } else { "Biswap" };
-                        // TODO: Pass matrix_manager and marginal_optimizer via closure or context
-                        // matrix_manager.update_dex_price(matrix_id, dex, price);
-                        // let opps = matrix_manager.scan_for_arbitrage_opportunities(marginal_optimizer);
-                        log::warn!(
-                            "[{}] New Block: Number={:?}, Hash={:?}, Simulated {} price: {}",
-                            name_clone,
-                            block.number.map(|n| n.as_u64()),
-                            block.hash.map(|h| format!("{:.8}", h)),
-                            dex,
-                            price
-                        );
-                        // For each opportunity, print or trigger downstream logic
-                        // for opp in opps { log::warn!("Found arbitrage: {}", opp); }
+                    log::warn!("   Subscribed to price updates on: {}", name_clone);
+                    while let Some(msg) = stream.next().await {
+                        // --- PRODUCTION: Parse real DEX WebSocket price update ---
+                        // Replace this block with the actual message parsing for each DEX
+                        // For example, you can use a match statement to handle different DEX messages
+                        match name_clone.as_str() {
+                            "PancakeSwap" => {
+                                if let Ok(price_update) = parse_pancakeswap_price_update_from_ws_message(&msg) {
+                                    let mut matrix = matrix2d.lock().unwrap();
+                                    matrix.update_price(&price_update.dex, &price_update.asset, price_update.price);
+                                    drop(matrix);
+                                    let matrix = matrix2d.lock().unwrap();
+                                    let opps = crate::analysis::scan_matrix2d(&matrix, settings.profit_threshold);
+                                    for (buy_dex, asset, sell_dex, buy_price, _, sell_price, profit_pct, ts) in opps {
+                                        log::info!("[OPP] Buy {} on {} at {} | Sell on {} at {} | Profit: {:.2}% @ {}", asset, buy_dex, buy_price, sell_dex, sell_price, profit_pct, ts);
+                                    }
+                                } else {
+                                    log::warn!("Failed to parse WebSocket message from {}", name_clone);
+                                }
+                            }
+                            "Biswap" => {
+                                if let Ok(price_update) = parse_biswap_price_update_from_ws_message(&msg) {
+                                    let mut matrix = matrix2d.lock().unwrap();
+                                    matrix.update_price(&price_update.dex, &price_update.asset, price_update.price);
+                                    drop(matrix);
+                                    let matrix = matrix2d.lock().unwrap();
+                                    let opps = crate::analysis::scan_matrix2d(&matrix, settings.profit_threshold);
+                                    for (buy_dex, asset, sell_dex, buy_price, _, sell_price, profit_pct, ts) in opps {
+                                        log::info!("[OPP] Buy {} on {} at {} | Sell on {} at {} | Profit: {:.2}% @ {}", asset, buy_dex, buy_price, sell_dex, sell_price, profit_pct, ts);
+                                    }
+                                } else {
+                                    log::warn!("Failed to parse WebSocket message from {}", name_clone);
+                                }
+                            }
+                            _ => {
+                                log::warn!("Unsupported DEX: {}", name_clone);
+                            if let Ok(price_update) = parse_biswap_price_update_from_ws_message(&msg) {
+                                let mut matrix = matrix2d.lock().unwrap();
+                                matrix.update_price(&price_update.dex, &price_update.asset, price_update.price);
+                                drop(matrix);
+                                let matrix = matrix2d.lock().unwrap();
+                                let opps = crate::analysis::scan_matrix2d(&matrix, settings.profit_threshold);
+                                for (buy_dex, asset, sell_dex, buy_price, _, sell_price, profit_pct, ts) in opps {
+                                    log::info!("[OPP] Buy {} on {} at {} | Sell on {} at {} | Profit: {:.2}% @ {}", asset, buy_dex, buy_price, sell_dex, sell_price, profit_pct, ts);
+                                }
+                            } else {
+                                log::warn!("Failed to parse WebSocket message from {}", name_clone);
+                            }
+                        }
+                        _ => {
+                            log::warn!("Unsupported DEX: {}", name_clone);
+                        }
                     }
-                     log::warn!("Block stream ended unexpectedly for: {}", name_clone); // Should ideally not happen unless WS disconnects
                 }
-                Err(e) => {
-                    log::warn!("Error subscribing to blocks for {}: {}", name_clone, e);
-                }
+                log::warn!("Block stream ended unexpectedly for: {}", name_clone); // Should ideally not happen unless WS disconnects
             }
-             log::warn!("WebSocket listener task finished for: {}", name_clone);
-        });
+            Err(e) => {
+                log::warn!("Error subscribing to blocks for {}: {}", name_clone, e);
+            }
+        }
+    Ok((name, provider, handle))
+}
 
-        Ok((name, provider, handle))
-    }
-
-    // Method to gracefully shut down listeners
-    pub async fn shutdown(&mut self) {
-        log::warn!("Shutting down WebSocket listeners...");
-        let count = self.connections.len();
-        for (name, (_, handle)) in self.connections.drain() {
+// Method to gracefully shut down listeners
+pub async fn shutdown(&mut self) {
+    log::warn!("Shutting down WebSocket listeners...");
+    let count = self.connections.len();
+    for (name, (_, handle)) in self.connections.drain() {
+         log::warn!("   Aborting listener for: {}", name);
+        handle.abort();
              log::warn!("   Aborting listener for: {}", name);
             handle.abort();
         }

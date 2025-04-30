@@ -2,7 +2,7 @@
 
 pub mod button;
 pub mod utils;
-pub mod use_is_mobile;
+// pub mod use_is_mobile;
 pub mod wallet_connect;
 pub mod accordion;
 pub mod header;

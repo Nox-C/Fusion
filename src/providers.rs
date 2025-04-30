@@ -61,13 +61,29 @@ impl ProviderManager {
         }
     }
     pub async fn new(settings: Arc<Settings>) -> Result<Self, ProviderManagerError> {
-        // Create wallet from private key
-        let wallet = settings
+        // Create wallet from private key (robust parsing)
+        let raw_key = settings
             .private_key
             .as_ref()
             .expect("PRIVATE_KEY must be set in environment or config")
-            .parse::<LocalWallet>()
-            .map_err(|e| ProviderManagerError::WalletError(e.to_string()))?;
+            .trim()
+            .to_string();
+        println!("[DEBUG] Raw PRIVATE_KEY: {:?}, length: {}", raw_key, raw_key.len());
+        // Try parsing as-is
+        let wallet = match raw_key.parse::<LocalWallet>() {
+            Ok(w) => Ok(w),
+            Err(e1) => {
+                // Try with 0x prefix
+                let with_0x = if raw_key.starts_with("0x") { raw_key.clone() } else { format!("0x{}", raw_key) };
+                match with_0x.parse::<LocalWallet>() {
+                    Ok(w) => Ok(w),
+                    Err(e2) => Err(ProviderManagerError::WalletError(format!(
+                        "Tried parsing PRIVATE_KEY as-is (error: {}), and with 0x prefix (error: {})",
+                        e1, e2
+                    )))
+                }
+            }
+        }?;
 
         // --- Try connecting to BSC Mainnet ---
         let bsc_provider = Self::connect_chain(
@@ -230,13 +246,13 @@ impl ProviderManager {
     /// Substitute ${INFURA_API_KEY}, ${ALCHEMY_API_KEY}, ${NODEREAL_API_KEY} in a URL string
     fn substitute_provider_keys(url: &str) -> String {
         let mut out = url.to_string();
-        if let Ok(val) = std::env::var("APP_INFURA_API_KEY") {
+        if let Ok(val) = std::env::var("INFURA_API_KEY") {
             out = out.replace("${INFURA_API_KEY}", &val);
         }
-        if let Ok(val) = std::env::var("APP_ALCHEMY_API_KEY") {
+        if let Ok(val) = std::env::var("ALCHEMY_API_KEY") {
             out = out.replace("${ALCHEMY_API_KEY}", &val);
         }
-        if let Ok(val) = std::env::var("APP_NODEREAL_API_KEY") {
+        if let Ok(val) = std::env::var("NODEREAL_API_KEY") {
             out = out.replace("${NODEREAL_API_KEY}", &val);
         }
         out

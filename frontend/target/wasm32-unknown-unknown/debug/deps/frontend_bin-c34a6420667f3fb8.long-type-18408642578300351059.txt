@@ -1,0 +1,1 @@
+UseStateHandle<std::option::Option<wasm_bindgen::prelude::Closure<dyn FnMut()>>>

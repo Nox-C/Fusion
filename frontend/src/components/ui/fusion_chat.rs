@@ -1,7 +1,5 @@
-use yew::{function_component, html, use_state, use_effect_with, use_effect, Html, Callback};
+use yew::{function_component, html, use_state, use_effect, Html, Callback};
 use yew::TargetCast;
-use rand::random;
-use web_sys::HtmlInputElement;
 use gloo_timers::callback::Timeout;
 use crate::api::profit::fetch_profit;
 use wasm_bindgen_futures::spawn_local;

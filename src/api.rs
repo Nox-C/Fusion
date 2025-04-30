@@ -1,33 +1,29 @@
-use crate::matrix::MatrixManager;
+use crate::matrix2d::Matrix2D;
+use std::sync::{Arc, Mutex};
 use crate::providers::ProviderManager;
-use actix_web::{Error, HttpRequest, HttpResponse, Responder, get, post, web};
-use actix_web_actors::ws;
-use actix::prelude::*;
-use std::sync::Arc;
+use actix_web::{HttpResponse, Responder, get, post, web};
+
+
+
 
 use ethers::middleware::Middleware;
 use ethers::signers::Signer;
 use ethers::types::{Address, TransactionRequest};
 use ethers::utils::parse_ether;
-use std::time::Duration;
 
-#[get("/api/matrices")]
-pub async fn get_matrices(data: web::Data<Arc<MatrixManager>>) -> impl Responder {
-    let matrices = data.all();
-    HttpResponse::Ok().json(matrices)
+
+#[get("/api/matrix2d")]
+pub async fn get_matrix2d(data: web::Data<Arc<Mutex<Matrix2D>>>) -> impl Responder {
+
+
+    let matrix = data.lock().unwrap();
+
+    HttpResponse::Ok().json(&*matrix)
 }
 
 // ... (rest of the code remains the same)
 
-#[get("/api/completed_transactions")]
-pub async fn get_completed_transactions(data: web::Data<Arc<MatrixManager>>) -> impl Responder {
-    let matrices = data.all();
-    let mut transactions = Vec::new();
-    for matrix in matrices {
-        transactions.extend(matrix.recent_transactions.clone());
-    }
-    HttpResponse::Ok().json(transactions)
-}
+// Legacy completed_transactions endpoint removed. If needed, implement for Matrix2D logic.
 
 #[post("/api/transfer")]
 pub async fn post_transfer(
@@ -137,69 +133,4 @@ pub async fn post_connect_wallet(provider_data: web::Data<Arc<ProviderManager>>)
     let address = provider_data.get_wallet().address();
     HttpResponse::Ok()
         .json(serde_json::json!({"status": "connected", "address": format!("0x{:x}", address)}))
-}
-
-// --- WebSocket Handler ---
-use serde_json;
-
-#[get("/ws/matrices")]
-pub async fn ws_matrices_handler(matrix_data: web::Data<Arc<MatrixManager>>, req: HttpRequest, stream: web::Payload) -> Result<HttpResponse, Error> {
-    let ws_actor = MatrixWs { manager: matrix_data.get_ref().clone() };
-    ws::start(ws_actor, &req, stream)
-}
-
-pub struct MatrixWs {
-    manager: Arc<MatrixManager>,
-}
-
-impl Actor for MatrixWs {
-    type Context = ws::WebsocketContext<Self>;
-
-    fn started(&mut self, ctx: &mut Self::Context) {
-        // Send initial matrices snapshot
-        if let Ok(initial) = serde_json::to_string(&self.manager.all()) {
-            ctx.text(initial);
-        }
-        // Periodic matrices updates
-        let manager = self.manager.clone();
-        ctx.run_interval(Duration::from_secs(5), move |_act, ctx| {
-            let matrices = manager.all();
-            if let Ok(json) = serde_json::to_string(&matrices) {
-                ctx.text(json);
-            }
-        });
-        log::info!("WebSocket client connected");
-    }
-
-    fn stopped(&mut self, _ctx: &mut Self::Context) {
-        log::info!("WebSocket client disconnected");
-    }
-}
-
-impl actix::StreamHandler<Result<ws::Message, ws::ProtocolError>> for MatrixWs {
-    fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
-        match msg {
-            Ok(ws::Message::Text(text)) => {
-                // Optionally handle commands from the client
-                ctx.text(format!("Echo: {}", text));
-            }
-            Ok(ws::Message::Binary(bin)) => {
-                ctx.binary(bin);
-            }
-            Ok(ws::Message::Ping(msg)) => {
-                ctx.pong(&msg);
-            }
-            Ok(ws::Message::Pong(_)) => {}
-            Ok(ws::Message::Close(reason)) => {
-                ctx.close(reason);
-                ctx.stop();
-            }
-            Ok(ws::Message::Continuation(_)) => {}
-            Ok(ws::Message::Nop) => {}
-            Err(e) => {
-                log::error!("WebSocket error: {:?}", e);
-                ctx.stop();
-            }
-        }
-    }
 }
