@@ -2,6 +2,7 @@ use crate::matrix2d::Matrix2D;
 use std::sync::{Arc, Mutex};
 use crate::providers::ProviderManager;
 use actix_web::{HttpResponse, Responder, get, post, web};
+use std::time::SystemTime;
 
 
 
@@ -14,16 +15,47 @@ use ethers::utils::parse_ether;
 
 #[get("/api/matrix2d")]
 pub async fn get_matrix2d(data: web::Data<Arc<Mutex<Matrix2D>>>) -> impl Responder {
-
-
     let matrix = data.lock().unwrap();
-
     HttpResponse::Ok().json(&*matrix)
+}
+
+pub async fn health_check() -> HttpResponse {
+    let uptime = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "healthy",
+        "uptime_seconds": uptime,
+        "timestamp": SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs()
+    }))
 }
 
 // ... (rest of the code remains the same)
 
 // Legacy completed_transactions endpoint removed. If needed, implement for Matrix2D logic.
+
+pub async fn execute_arbitrage(
+    payload: web::Json<serde_json::Value>,
+    provider_data: web::Data<Arc<ProviderManager>>,
+) -> HttpResponse {
+    let text = match payload.get("text").and_then(|v| v.as_str()) {
+        Some(t) => t,
+        None => {
+            return HttpResponse::BadRequest()
+                .json(serde_json::json!({"status": "error", "reason": "Missing text parameter"}));
+        }
+    };
+
+    match provider_data.execute_arbitrage_onchain(text).await {
+        Ok(response) => HttpResponse::Ok().json(response),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "status": "error",
+            "reason": format!("Failed to execute arbitrage: {}", e)
+        })),
+    }
+}
 
 #[post("/api/transfer")]
 pub async fn post_transfer(

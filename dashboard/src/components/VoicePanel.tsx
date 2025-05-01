@@ -1,10 +1,55 @@
 // TypeScript: Extend window for speech API
-interface Window {
-  SpeechRecognition: any;
-  webkitSpeechRecognition: any;
+declare global {
+  interface Window {
+    SpeechRecognition: any;
+    webkitSpeechRecognition: any;
+  }
 }
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import axios from 'axios';
+import { useSpeechSynthesis } from 'react-speech-kit';
+
+interface VoicePanelProps {
+  onStartVoice: () => void;
+  onEndVoice: () => void;
+  isSpeaking: boolean;
+}
+
+interface VoiceStatus {
+  isConnected: boolean;
+  isProcessing: boolean;
+  error?: string;
+  lastMessage?: string;
+}
+
+// Type declarations for SpeechRecognition API
+interface SpeechRecognitionResult {
+  transcript: string;
+  confidence: number;
+}
+
+interface SpeechRecognitionResultList {
+  length: number;
+  item: (index: number) => SpeechRecognitionResult | null;
+  [index: number]: SpeechRecognitionResult;
+}
+
+interface SpeechRecognitionEvent extends Event {
+  results: SpeechRecognitionResultList;
+}
+
+interface SpeechRecognition {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onstart: () => void;
+  onresult: (event: SpeechRecognitionEvent) => void;
+  onerror: (event: Event) => void;
+  onend: () => void;
+  start: () => void;
+  stop: () => void;
+}
 
 const VOICE_NAME = 'Google UK English Female'; // fallback to best available female voice
 
@@ -18,24 +63,89 @@ function getFusionVoice(): SpeechSynthesisVoice | null {
   );
 }
 
-export default function VoicePanel({ onStartVoice, onEndVoice, isSpeaking }: {
-  onStartVoice: () => void;
-  onEndVoice: () => void;
-  isSpeaking: boolean;
-}) {
+export const VoicePanel: React.FC<VoicePanelProps> = ({ onStartVoice, onEndVoice, isSpeaking }) => {
   const [listening, setListening] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [aiReply, setAiReply] = useState('');
-  const [speechSupport, setSpeechSupport] = useState({ recognition: true, synthesis: true });
-  const recognitionRef = useRef<any>(null);
+  const [status, setStatus] = useState<VoiceStatus>({
+    isConnected: false,
+    isProcessing: false,
+    error: undefined,
+    lastMessage: undefined,
+  });
+  const [speechSupport, setSpeechSupport] = useState({
+    recognition: false,
+    synthesis: false,
+  });
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
 
   useEffect(() => {
     // Check for browser support
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     setSpeechSupport({
-      recognition: !!(window.SpeechRecognition || window.webkitSpeechRecognition),
+      recognition: !!SpeechRecognition,
       synthesis: !!window.speechSynthesis,
     });
-  }, []);
+
+    if (!SpeechRecognition) {
+      setStatus(prev => ({
+        ...prev,
+        error: 'Speech recognition is not supported in your browser',
+      }));
+      return;
+    }
+
+    const recognition = new (SpeechRecognition as any)();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+    recognitionRef.current = recognition;
+
+    recognition.onstart = () => {
+      setListening(true);
+      setStatus(prev => ({
+        ...prev,
+        isConnected: true,
+        isProcessing: true,
+      }));
+      onStartVoice();
+    };
+
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      const transcript = Array.from(event.results)
+        .map(result => result.transcript)
+        .join('');
+      setTranscript(transcript);
+      setStatus(prev => ({
+        ...prev,
+        lastMessage: transcript,
+      }));
+    };
+
+    recognition.onerror = (event) => {
+      setStatus(prev => ({
+        ...prev,
+        error: event.error,
+        isConnected: false,
+        isProcessing: false,
+      }));
+    };
+
+    recognition.onend = () => {
+      setListening(false);
+      setStatus(prev => ({
+        ...prev,
+        isProcessing: false,
+      }));
+      onEndVoice();
+    };
+
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    };
+  }, [onStartVoice, onEndVoice]);
 
   // Start speech recognition
   const startListening = () => {
@@ -49,26 +159,48 @@ export default function VoicePanel({ onStartVoice, onEndVoice, isSpeaking }: {
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
     recognition.onstart = () => {
-      console.log('[SpeechRecognition] start');
+      setListening(true);
+      onStartVoice();
     };
-    recognition.onresult = (event: any) => {
-      const text = event.results[0][0].transcript;
-      setTranscript(text);
-      setListening(false);
-      onEndVoice();
-      console.log('[SpeechRecognition] result:', text);
-      // Send to AI backend (placeholder)
-      fakeFusionAI(text);
+    recognition.onresult = async (event) => {
+      const transcript = event.results[0][0].transcript;
+      setTranscript(transcript);
+      
+      // Send to Rust backend
+      setStatus(prev => ({
+        ...prev,
+        isProcessing: true,
+        lastMessage: transcript,
+        error: undefined
+      }));
+
+      try {
+        const response = await axios.post('/api/voice-process', { text: transcript });
+        const data = response.data;
+        setAiReply(data.reply);
+        setStatus(prev => ({
+          ...prev,
+          isProcessing: false,
+          error: undefined
+        }));
+      } catch (error: any) {
+        console.error('Voice processing error:', error);
+        setStatus(prev => ({
+          ...prev,
+          isProcessing: false,
+          error: error.response?.data?.error || 'Failed to process request'
+        }));
+        setAiReply('Error: ' + (error.response?.data?.error || 'Failed to process request'));
+      }
     };
     recognition.onend = () => {
       setListening(false);
       onEndVoice();
-      console.log('[SpeechRecognition] end');
     };
-    recognition.onerror = (err: any) => {
+    recognition.onerror = (event) => {
+      console.error('Speech recognition error:', event.error);
       setListening(false);
       onEndVoice();
-      console.error('[SpeechRecognition] error:', err);
     };
     recognitionRef.current = recognition;
     setListening(true);
@@ -134,23 +266,41 @@ export default function VoicePanel({ onStartVoice, onEndVoice, isSpeaking }: {
       <div className="flex gap-2 mb-2">
         <span className={`w-3 h-3 rounded-full ${listening ? 'bg-yellow-400 animate-pulse' : 'bg-gray-700'}`} title="Listening"></span>
         <span className={`w-3 h-3 rounded-full ${transcript ? 'bg-green-400' : 'bg-gray-700'}`} title="Recognized"></span>
-        <span className={`w-3 h-3 rounded-full ${isSpeaking ? 'bg-cyan-400 animate-pulse' : 'bg-gray-700'}`} title="Speaking"></span>
       </div>
-      {/* Speech support warning */}
-      {(!speechSupport.recognition || !speechSupport.synthesis) && (
-        <div className="text-red-400 text-sm mb-2">⚠️ Voice features not supported in this browser.</div>
+
+      {/* Error Message */}
+      {status.error && (
+        <div className="text-red-400 text-sm mb-4">
+          Error: {status.error}
+        </div>
       )}
-      <div className="mt-2 text-fusion-neon text-lg min-h-[1.5em]">{transcript}</div>
-      <div className="mt-2 text-fusion text-lg min-h-[2em]">{aiReply}</div>
-      <div className="w-full flex justify-center mt-6">
+
+      <div className="flex items-center justify-center mb-4">
         <button
-          className={`rounded-full px-8 py-4 bg-fusion-neon text-fusion-dark text-xl font-fusion shadow-fusion-glow transition-all ${listening ? 'scale-110' : ''}`}
           onClick={startListening}
-          disabled={listening || isSpeaking}
-          aria-label="Speak to FUSION"
+          disabled={!status.isConnected || status.isProcessing}
+          className={`px-6 py-2 rounded-full text-lg font-semibold transition-all duration-300 ${
+            listening ? 'bg-fusion-neon text-fusion-dark' : 'bg-fusion text-fusion-neon'
+          } ${
+            !status.isConnected || status.isProcessing ? 'opacity-50 cursor-not-allowed' : ''
+          }`}
         >
-          {listening ? 'Listening...' : 'Talk to FUSION'}
+          {listening ? 'Listening...' : status.isProcessing ? 'Processing...' : 'Speak'}
         </button>
+      </div>
+
+      {/* Voice Interaction History */}
+      <div className="space-y-2">
+        {status.lastMessage && (
+          <div className="text-fusion text-sm">
+            You: {status.lastMessage}
+          </div>
+        )}
+        {aiReply && (
+          <div className="text-fusion-neon text-sm">
+            AI: {aiReply}
+          </div>
+        )}
       </div>
     </div>
   );

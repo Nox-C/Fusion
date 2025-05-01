@@ -4,9 +4,9 @@ import { OrbitControls } from '@react-three/drei';
 import { Lights } from './components/Lights';
 import FusionOrb from './components/FusionOrb';
 import FusionFace from './components/FusionFace';
-import VoicePanel from './components/VoicePanel';
+import { VoicePanel } from './components/VoicePanel';
 import DashboardStats from './components/DashboardStats';
-import LiveFeeds from './components/LiveFeeds';
+import { LiveFeeds } from './components/LiveFeeds';
 
 export default function App() {
   const [isSpeaking, setIsSpeaking] = useState(false);

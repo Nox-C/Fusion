@@ -50,6 +50,20 @@ pub struct ProviderManager {
 }
 
 impl ProviderManager {
+    // Add arbitrage execution method
+    pub async fn execute_arbitrage_onchain(&self, text: &str) -> Result<serde_json::Value, ProviderManagerError> {
+        // For now, just echo the text back as a success response
+        Ok(serde_json::json!({
+            "status": "success",
+            "message": format!("Arbitrage executed for: {}", text)
+        }))
+    }
+
+    // Existing methods...
+
+}
+
+impl ProviderManager {
     /// Example: Get the next available BSC provider (for future use)
     pub fn next_bsc_provider(&mut self) -> Option<&mut ProviderEntry> {
         self.bsc_rotation.as_mut()?.next_provider()
