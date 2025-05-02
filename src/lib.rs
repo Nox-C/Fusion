@@ -16,3 +16,4 @@ pub mod execution_log;
 pub mod ai_controller;
 pub mod shared_state;
 pub mod optimizer_ai;
+pub mod events;

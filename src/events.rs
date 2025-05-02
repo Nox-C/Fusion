@@ -39,7 +39,7 @@ impl WebSocketEventSender {
 
     pub fn send_dex_event(&self, dex: &str, message: &str, status: &str) {
         let event = WebSocketEvent::Dex(DexEvent {
-            id: Uuid::new().unwrap().to_string(),
+            id: Uuid::new_v4().to_string(),
             timestamp: Utc::now().to_rfc3339(),
             dex: dex.to_string(),
             message: message.to_string(),
@@ -51,7 +51,7 @@ impl WebSocketEventSender {
 
     pub fn send_liquidation_event(&self, account: &str, details: &str, status: &str) {
         let event = WebSocketEvent::Liquidation(LiquidationEvent {
-            id: Uuid::new().unwrap().to_string(),
+            id: Uuid::new_v4().to_string(),
             timestamp: Utc::now().to_rfc3339(),
             account: account.to_string(),
             status: status.to_string(),
@@ -64,6 +64,14 @@ impl WebSocketEventSender {
 
 pub struct WebSocketEventReceiver {
     rx: tokio::sync::broadcast::Receiver<WebSocketEvent>,
+}
+
+impl Clone for WebSocketEventReceiver {
+    fn clone(&self) -> Self {
+        Self {
+            rx: self.rx.resubscribe(),
+        }
+    }
 }
 
 impl WebSocketEventReceiver {

@@ -22,6 +22,22 @@ export interface LiquidationEvent {
   details: string;
 }
 
+export interface ParameterUpdateEvent {
+  type: 'parameter_update';
+  parameter_name: string;
+  new_value: string;
+  timestamp: string;
+  source: string;
+}
+
+export interface BotStatusEvent {
+  type: 'bot_status';
+  bot_name: string;
+  status: string;
+  message?: string;
+  timestamp: string;
+}
+
 export interface OpportunityMetric {
   timestamp: string;
   type: 'arbitrage' | 'liquidation';
